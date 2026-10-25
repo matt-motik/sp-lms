@@ -1,0 +1,114 @@
+[
+  {
+    "model": "users.customuser",
+    "pk": 101,
+    "fields": {
+      "password": "pbkdf2_sha256$1000000$b54b4939b28369e267fff8$oRoYpTfcEwITj+ujZ0TSLz43R8pKgKtsLG9cY5RzL4w=",
+      "last_login": null,
+      "is_superuser": false,
+      "first_name": "Иван",
+      "last_name": "Петров",
+      "is_staff": false,
+      "is_active": true,
+      "date_joined": "2026-09-01T09:00:00Z",
+      "email": "ivan@example.com",
+      "phone": "+79001234567",
+      "city": "Москва",
+      "avatar": "",
+      "groups": [],
+      "user_permissions": []
+    }
+  },
+  {
+    "model": "users.customuser",
+    "pk": 102,
+    "fields": {
+      "password": "pbkdf2_sha256$1000000$b54b4939b28369e267fff8$oRoYpTfcEwITj+ujZ0TSLz43R8pKgKtsLG9cY5RzL4w=",
+      "last_login": null,
+      "is_superuser": false,
+      "first_name": "Анна",
+      "last_name": "Смирнова",
+      "is_staff": false,
+      "is_active": true,
+      "date_joined": "2026-09-01T09:00:00Z",
+      "email": "anna@example.com",
+      "phone": "+79007654321",
+      "city": "Казань",
+      "avatar": "",
+      "groups": [],
+      "user_permissions": []
+    }
+  },
+  {
+    "model": "users.payment",
+    "pk": 101,
+    "fields": {
+      "user": 101,
+      "payment_date": "2026-09-05T10:00:00Z",
+      "paid_course": 101,
+      "paid_lesson": null,
+      "amount": "15000.00",
+      "payment_method": "transfer"
+    }
+  },
+  {
+    "model": "users.payment",
+    "pk": 102,
+    "fields": {
+      "user": 101,
+      "payment_date": "2026-09-20T12:30:00Z",
+      "paid_course": null,
+      "paid_lesson": 104,
+      "amount": "2000.00",
+      "payment_method": "cash"
+    }
+  },
+  {
+    "model": "users.payment",
+    "pk": 103,
+    "fields": {
+      "user": 101,
+      "payment_date": "2026-10-02T09:15:00Z",
+      "paid_course": 102,
+      "paid_lesson": null,
+      "amount": "20000.00",
+      "payment_method": "transfer"
+    }
+  },
+  {
+    "model": "users.payment",
+    "pk": 104,
+    "fields": {
+      "user": 102,
+      "payment_date": "2026-09-10T18:00:00Z",
+      "paid_course": 101,
+      "paid_lesson": null,
+      "amount": "15000.00",
+      "payment_method": "cash"
+    }
+  },
+  {
+    "model": "users.payment",
+    "pk": 105,
+    "fields": {
+      "user": 102,
+      "payment_date": "2026-09-28T14:45:00Z",
+      "paid_course": null,
+      "paid_lesson": 105,
+      "amount": "2500.00",
+      "payment_method": "transfer"
+    }
+  },
+  {
+    "model": "users.payment",
+    "pk": 106,
+    "fields": {
+      "user": 102,
+      "payment_date": "2026-10-15T11:00:00Z",
+      "paid_course": null,
+      "paid_lesson": 102,
+      "amount": "1500.00",
+      "payment_method": "cash"
+    }
+  }
+]
