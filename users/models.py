@@ -28,4 +28,4 @@ class CustomUser(AbstractUser):
 
     def __str__(self) -> str:
         """Возвращает email пользователя."""
-        return self.email
+        return str(self.email)

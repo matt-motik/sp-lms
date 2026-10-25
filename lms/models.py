@@ -18,7 +18,7 @@ class Course(models.Model):
 
     def __str__(self) -> str:
         """Возвращает название курса."""
-        return self.title
+        return str(self.title)
 
 
 class Lesson(models.Model):
@@ -38,4 +38,4 @@ class Lesson(models.Model):
 
     def __str__(self) -> str:
         """Возвращает название урока."""
-        return self.title
+        return str(self.title)

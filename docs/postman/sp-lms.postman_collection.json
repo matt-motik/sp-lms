@@ -1,0 +1,231 @@
+{
+  "info": {
+    "name": "sp-lms",
+    "description": "CRUD курсов (ViewSet), уроков (Generic) и профиля пользователя. Запускать по порядку; удаление курса — последним. В запросах с картинками выберите файл в поле типа File.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Courses (ViewSet)",
+      "item": [
+        {
+          "name": "Create Course",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Python для начинающих",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Базовый курс",
+                  "type": "text"
+                },
+                {
+                  "key": "preview",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{base_url}}/courses/"
+          },
+          "response": []
+        },
+        {
+          "name": "List Courses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/courses/"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Course",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/courses/1/"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Course",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Python с нуля\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/courses/1/"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Course",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/courses/1/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Lessons (Generic)",
+      "item": [
+        {
+          "name": "Create Lesson",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "course",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "title",
+                  "value": "Переменные",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Типы данных и переменные",
+                  "type": "text"
+                },
+                {
+                  "key": "video_url",
+                  "value": "https://youtube.com/watch?v=test",
+                  "type": "text"
+                },
+                {
+                  "key": "preview",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{base_url}}/lessons/create/"
+          },
+          "response": []
+        },
+        {
+          "name": "List Lessons",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/lessons/"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Lesson",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/lessons/1/"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Lesson",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Переменные и типы\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/lessons/1/update/"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Lesson",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/lessons/1/delete/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Users (доп. задание)",
+      "item": [
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/1/"
+          },
+          "response": []
+        },
+        {
+          "name": "Update User Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{base_url}}/users/1/",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "city",
+                  "value": "Франкфурт",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "+491234567890",
+                  "type": "text"
+                },
+                {
+                  "key": "avatar",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

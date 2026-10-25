@@ -13,17 +13,17 @@ class CustomUserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def create_user(self, email: str, password: str | None = None, **extra_fields: Any) -> "CustomUser":
+    def create_user(self, email: str, password: str | None = None, **extra_fields: Any) -> CustomUser:
         """Создаёт и сохраняет обычного пользователя."""
         if not email:
             raise ValueError("Email обязателен")
         email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+        user: CustomUser = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, email: str, password: str | None = None, **extra_fields: Any) -> "CustomUser":
+    def create_superuser(self, email: str, password: str | None = None, **extra_fields: Any) -> CustomUser:
         """Создаёт и сохраняет суперпользователя."""
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)

@@ -6,6 +6,7 @@ dependencies = [
     "django>=6.1.2",
     "django-environ>=0.14.0",
     "djangorestframework>=3.18.3",
+    "djangorestframework-stubs>=3.18.1",
     "pillow>=13.0.0",
     "psycopg2-binary>=2.9.13",
 ]
