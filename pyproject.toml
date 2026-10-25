@@ -15,6 +15,7 @@ dev = [
     "pre-commit>=4.7.0",
 ]
 lint = [
+    "djangorestframework-stubs>=3.18.1",
     "mypy>=2.4.0",
     "ruff>=0.17.2",
 ]

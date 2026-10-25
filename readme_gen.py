@@ -3,6 +3,7 @@
 
 import ast
 import re
+import shutil
 import subprocess
 from collections import defaultdict
 from datetime import datetime
@@ -10,138 +11,187 @@ from pathlib import Path
 from typing import Any
 
 # ==================== НАСТРОЙКИ ====================
-SOURCE_DIRS = ["catalog", "blog", "config", "users"]
-EXCLUDE_DIRS = {".venv", "venv", "env", "__pycache__", "htmlcov", "tests", "docs", ".git", ".idea", ".vscode"}
-EXCLUDE_FILES = {"media", "readme_gen.py", "setup.py", ".env", "db.sqlite3"}
-README_FILE = "README.md"
-DOCS_OUTPUT_DIR = Path("docs/api")
 PROJECT_ROOT = Path(__file__).resolve().parent
-
+# Пустой список = искать автоматически все пакеты (папки с __init__.py) в корне проекта
+SOURCE_DIRS: list[str] = []
+EXCLUDE_DIRS = {
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    "htmlcov",
+    "tests",
+    "docs",
+    "media",
+    "migrations",
+    "node_modules",
+    ".git",
+    ".idea",
+    ".vscode",
+}
+EXCLUDE_FILES = {"readme_gen.py", "setup.py", ".env", "db.sqlite3"}
+README_FILE = PROJECT_ROOT / "README.md"
+DOCS_OUTPUT_DIR = Path("docs/api")
 # ===================================================
 
 
+def find_source_dirs() -> list[Path]:
+    """Возвращает папки с исходниками: из SOURCE_DIRS или все пакеты в корне проекта."""
+    if SOURCE_DIRS:
+        return [PROJECT_ROOT / name for name in SOURCE_DIRS]
+    return sorted(
+        item
+        for item in PROJECT_ROOT.iterdir()
+        if item.is_dir()
+        and not item.name.startswith(".")
+        and item.name not in EXCLUDE_DIRS
+        and (item / "__init__.py").exists()
+    )
+
+
+def find_python_files() -> list[Path]:
+    """Собирает Python-файлы из папок с исходниками и корня проекта."""
+    py_files: list[Path] = []
+
+    for source_path in find_source_dirs():
+        if not source_path.exists():
+            print(f"⚠️ Папка {source_path.name} не найдена, пропускаем")
+            continue
+        for py_file in sorted(source_path.rglob("*.py")):
+            relative_parts = py_file.relative_to(PROJECT_ROOT).parts
+            if any(part in EXCLUDE_DIRS for part in relative_parts):
+                continue
+            if py_file.name in EXCLUDE_FILES:
+                continue
+            py_files.append(py_file)
+
+    for py_file in sorted(PROJECT_ROOT.glob("*.py")):
+        if py_file.name not in EXCLUDE_FILES:
+            py_files.append(py_file)
+
+    return py_files
+
+
+def make_doc(kind: str, name: str, docstring: str, module: str) -> dict[str, Any]:
+    """Формирует запись документации для одного объекта."""
+    return {
+        "type": kind,
+        "name": name,
+        "summary": docstring.strip().split("\n")[0][:150],
+        "full_docstring": docstring,
+        "file": module,
+    }
+
+
+def extract_from_class(node: ast.ClassDef, prefix: str, module: str) -> list[dict[str, Any]]:
+    """Извлекает docstring класса, его методов и вложенных классов (например, Meta)."""
+    results: list[dict[str, Any]] = []
+    name = f"{prefix}{node.name}"
+
+    docstring = ast.get_docstring(node)
+    if docstring:
+        results.append(make_doc("class", name, docstring, module))
+
+    for item in node.body:
+        if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and not item.name.startswith("_"):
+            method_doc = ast.get_docstring(item)
+            if method_doc:
+                results.append(make_doc("method", f"{name}.{item.name}", method_doc, module))
+        elif isinstance(item, ast.ClassDef) and not item.name.startswith("_"):
+            results.extend(extract_from_class(item, f"{name}.", module))
+
+    return results
+
+
 def extract_docstrings_from_file(filepath: Path) -> list[dict[str, Any]]:
-    """Извлекает docstring из одного Python файла."""
+    """Извлекает docstring функций и классов верхнего уровня из одного Python-файла."""
+    module = filepath.relative_to(PROJECT_ROOT).as_posix()
     try:
-        with open(filepath, encoding="utf-8") as f:
-            content = f.read()
-
-        tree = ast.parse(content)
-        results = []
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                if node.name.startswith("_"):
-                    continue
-                docstring = ast.get_docstring(node)
-                if docstring:
-                    first_line = docstring.strip().split("\n")[0]
-                    results.append(
-                        {
-                            "type": "function",
-                            "name": node.name,
-                            "summary": first_line[:150],
-                            "full_docstring": docstring,
-                            "file": filepath.name,
-                        }
-                    )
-
-            elif isinstance(node, ast.ClassDef):
-                if node.name.startswith("_"):
-                    continue
-                docstring = ast.get_docstring(node)
-                if docstring:
-                    first_line = docstring.strip().split("\n")[0]
-                    results.append(
-                        {
-                            "type": "class",
-                            "name": node.name,
-                            "summary": first_line[:150],
-                            "full_docstring": docstring,
-                            "file": filepath.name,
-                        }
-                    )
-
-                for item in node.body:
-                    if isinstance(item, ast.FunctionDef):
-                        if item.name.startswith("_"):
-                            continue
-                        docstring = ast.get_docstring(item)
-                        if docstring:
-                            first_line = docstring.strip().split("\n")[0]
-                            results.append(
-                                {
-                                    "type": "method",
-                                    "name": f"{node.name}.{item.name}",
-                                    "summary": first_line[:150],
-                                    "full_docstring": docstring,
-                                    "file": filepath.name,
-                                }
-                            )
-
-        return results
-    except Exception as e:
-        print(f"  ⚠️ Ошибка в {filepath.name}: {e}")
+        tree = ast.parse(filepath.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError) as e:
+        print(f"  ⚠️ Ошибка в {module}: {e}")
         return []
+
+    results: list[dict[str, Any]] = []
+    for node in tree.body:
+        if getattr(node, "name", "").startswith("_"):
+            continue
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            docstring = ast.get_docstring(node)
+            if docstring:
+                results.append(make_doc("function", node.name, docstring, module))
+        elif isinstance(node, ast.ClassDef):
+            results.extend(extract_from_class(node, "", module))
+
+    return results
+
+
+def doc_link_for(module: str) -> str:
+    """Возвращает путь к markdown-файлу модуля относительно README: lms/models.py -> docs/api/lms/models.md."""
+    return (DOCS_OUTPUT_DIR / Path(module).with_suffix(".md")).as_posix()
+
+
+def anchor_for(name: str) -> str:
+    """Возвращает HTML-якорь для объекта."""
+    return name.replace(".", "-")
+
+
+def group_by_module(all_docs: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Группирует записи документации по пути модуля."""
+    by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for doc in all_docs:
+        by_file[doc["file"]].append(doc)
+    return dict(sorted(by_file.items()))
 
 
 def generate_api_table(all_docs: list[dict[str, Any]]) -> str:
-    """Генерирует Markdown таблицу для раздела API с якорями для GitHub."""
+    """Генерирует Markdown-таблицу для раздела API с якорями для GitHub."""
     if not all_docs:
-        return "| `—` | `—` | Документация не найдена |\n"
+        return "| `—` | `—` | Документация не найдена |"
 
-    by_file = defaultdict(list)
-    for doc in all_docs:
-        by_file[doc["file"]].append(doc)
-
+    icons = {"function": "🔧", "class": "📦", "method": "⚙️"}
     lines = []
-    for file, docs in sorted(by_file.items()):
-        base_name = file.replace(".py", "")
-        link_path = DOCS_OUTPUT_DIR / f"{base_name}.md"
-        link = str(link_path).replace("\\", "/")
-
-        # Строка модуля — теперь это ссылка на файл с документацией
-        lines.append(f"| [**`{file}`**]({link}) | | |")
-
+    for module, docs in group_by_module(all_docs).items():
+        link = doc_link_for(module)
+        lines.append(f"| [**`{module}`**]({link}) | | |")
         for doc in docs:
-            icon = "🔧" if doc["type"] == "function" else "📦" if doc["type"] == "class" else "⚙️"
-            # Оставляем якорь для GitHub
-            doc_link = f"[{icon} {doc['name']}]({link}#{doc['name']})"
+            doc_link = f"[{icons[doc['type']]} {doc['name']}]({link}#{anchor_for(doc['name'])})"
             lines.append(f"| | {doc_link} | {doc['summary']} |")
 
     return "\n".join(lines)
 
 
-def generate_detailed_docs(all_docs: list[dict[str, Any]]) -> None:
-    """Генерирует подробную документацию с HTML-якорями."""
-    DOCS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def generate_detailed_docs(all_docs: list[dict[str, Any]]) -> int:
+    """Пересоздаёт папку с подробной документацией и возвращает число созданных файлов."""
+    docs_dir = PROJECT_ROOT / DOCS_OUTPUT_DIR
+    if docs_dir.exists():
+        shutil.rmtree(docs_dir)
 
-    by_file = defaultdict(list)
-    for doc in all_docs:
-        by_file[doc["file"]].append(doc)
+    modules = group_by_module(all_docs)
+    for module, docs in modules.items():
+        md_file = PROJECT_ROOT / doc_link_for(module)
+        md_file.parent.mkdir(parents=True, exist_ok=True)
 
-    for file, docs in by_file.items():
-        base_name = file.replace(".py", "")
-        md_file = DOCS_OUTPUT_DIR / f"{base_name}.md"
+        parts = [
+            f"# Модуль: `{module}`\n",
+            f"*Сгенерировано: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n",
+            "---\n",
+        ]
+        for doc in docs:
+            parts.extend(
+                [
+                    f'<div id="{anchor_for(doc["name"])}"></div>\n',
+                    f"## {doc['name']}\n",
+                    f"**Тип:** {doc['type']}\n",
+                    f"**Кратко:** {doc['summary']}\n",
+                    "### Полная документация\n",
+                    f"```text\n{doc['full_docstring'].strip()}\n```\n",
+                    "---\n",
+                ]
+            )
+        md_file.write_text("\n".join(parts), encoding="utf-8")
 
-        with open(md_file, "w", encoding="utf-8") as f:
-            f.write(f"# Модуль: `{file}`\n\n")
-            f.write(f"*Сгенерировано: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n")
-            f.write("---\n\n")
-
-            for doc in docs:
-                # HTML-якорь для GitHub (PyCharm его просто проигнорирует)
-                f.write(f'<div id="{doc["name"]}"></div>\n\n')
-                f.write(f"## {doc['name']}\n\n")
-                f.write(f"**Тип:** {doc['type']}\n\n")
-                f.write(f"**Кратко:** {doc['summary']}\n\n")
-
-                f.write("### Полная документация\n\n")
-                f.write("```python\n")
-                f.write(doc["full_docstring"].strip())
-                f.write("\n```\n\n")
-
-                f.write("---\n\n")
+    return len(modules)
 
 
 def generate_project_structure() -> str:
@@ -150,360 +200,146 @@ def generate_project_structure() -> str:
     def should_include(path: Path) -> bool:
         """Определяет, нужно ли включать файл или каталог в структуру."""
         relative_parts = path.relative_to(PROJECT_ROOT).parts
-
-        # Скрытые файлы/каталоги и явно исключённые элементы не показываем.
         if any(part.startswith(".") for part in relative_parts):
             return False
-        if any(part in EXCLUDE_DIRS for part in relative_parts):
+        if any(part in EXCLUDE_DIRS - {"docs", "migrations", "tests"} for part in relative_parts):
             return False
-        return path.name not in EXCLUDE_FILES
-
-    def get_visible_items(directory: Path) -> list[Path]:
-        """Возвращает отсортированные элементы каталога после фильтрации."""
-        return sorted(
-            (item for item in directory.iterdir() if should_include(item)),
-            key=lambda p: (not p.is_dir(), p.name.lower()),
-        )
+        return path.name not in EXCLUDE_FILES - {"readme_gen.py"}
 
     def get_tree(directory: Path, prefix: str = "") -> list[str]:
         """Рекурсивно строит дерево файлов и каталогов."""
         lines: list[str] = []
-        items = get_visible_items(directory)
-
+        items = sorted(
+            (item for item in directory.iterdir() if should_include(item)),
+            key=lambda p: (not p.is_dir(), p.name.lower()),
+        )
         for index, item in enumerate(items):
             is_last = index == len(items) - 1
-            branch = "└── " if is_last else "├── "
-            name = f"{item.name}/" if item.is_dir() else item.name
-
-            lines.append(f"{prefix}{branch}{name}")
-
-            if item.is_dir():
-                child_prefix = prefix + ("    " if is_last else "│   ")
-                lines.extend(get_tree(item, child_prefix))
-
+            lines.append(f"{prefix}{'└── ' if is_last else '├── '}{item.name}{'/' if item.is_dir() else ''}")
+            # Папку docs/api не разворачиваем: там только сгенерированные файлы
+            if item.is_dir() and item.relative_to(PROJECT_ROOT).as_posix() != DOCS_OUTPUT_DIR.as_posix():
+                lines.extend(get_tree(item, prefix + ("    " if is_last else "│   ")))
         return lines
 
-    tree_lines = ["```text", f"{PROJECT_ROOT.name}/"]
-    tree_lines.extend(get_tree(PROJECT_ROOT))
-    tree_lines.append("```")
-
-    return "\n".join(tree_lines)
+    return "\n".join(["```text", f"{PROJECT_ROOT.name}/", *get_tree(PROJECT_ROOT), "```"])
 
 
-def run_tests_and_get_results_src() -> str:
+def has_tests() -> bool:
+    """Проверяет, есть ли в проекте файлы тестов."""
+    for path in PROJECT_ROOT.rglob("test*.py"):
+        relative_parts = path.relative_to(PROJECT_ROOT).parts
+        if not any(part in EXCLUDE_DIRS - {"tests"} or part.startswith(".") for part in relative_parts):
+            return True
+    return False
+
+
+def run_tests_and_get_results() -> str:
     """Запускает pytest с coverage и возвращает форматированный вывод."""
-    print("\n🧪 Запуск тестов с coverage...")
+    if not has_tests():
+        return "\n*Тесты пока не добавлены.*\n"
 
+    print("\n🧪 Запуск тестов с coverage...")
     try:
-        # Запускаем pytest с coverage
         result = subprocess.run(
-            ["uv", "run", "pytest"],
+            ["uv", "run", "pytest", "--cov", "--cov-report=term", "--cov-report=html"],
             capture_output=True,
             text=True,
             encoding="utf-8",
+            cwd=PROJECT_ROOT,
+            check=False,
         )
-
-        output = result.stdout + result.stderr
-
-        # Парсим coverage summary
-        coverage_summary = ""
-        for line in output.split("\n"):
-            if "TOTAL" in line or "Coverage" in line or "%" in line:
-                coverage_summary += line + "\n"
-
-        # Форматируем вывод для Markdown
-        formatted_output = "### 📊 Результаты тестов SRC\n\n"
-        formatted_output += "```\n"
-
-        # Добавляем основную информацию
-        if "FAILED" in output or "ERROR" in output:
-            formatted_output += "❌ Некоторые тесты не прошли!\n\n"
-
-        # Выводим summary coverage
-        if coverage_summary:
-            formatted_output += "📈 Покрытие кода:\n"
-            formatted_output += coverage_summary + "\n"
-
-        # Выводим последние строки с результатами
-        lines = output.split("\n")
-        test_lines = []
-        for line in lines[-30:]:  # Последние 30 строк
-            if any(keyword in line for keyword in ["PASSED", "FAILED", "ERROR", "test_", "===", "---"]):
-                test_lines.append(line)
-
-        if test_lines:
-            formatted_output += "🎯 Результаты тестов src:\n"
-            formatted_output += "\n".join(test_lines[-20:])  # Последние 20 строк
-
-        formatted_output += "\n```\n\n"
-
-        # Добавляем ссылку на HTML отчёт
-        formatted_output += "> 📊 **HTML отчёт покрытия**: [`htmlcov/index.html`](htmlcov/src/index.html)\n\n"
-
-        return formatted_output
-
-    except subprocess.CalledProcessError as e:
-        return f"```\n❌ Ошибка при запуске тестов: {e}\n```\n"
     except FileNotFoundError:
-        return "```\n⚠️ Pytest не найден. Установите: poetry add --group dev pytest pytest-cov\n```\n"
+        return "```\n⚠️ uv не найден в PATH\n```\n"
+
+    output = result.stdout + result.stderr
+    if "No module named pytest" in output or "Failed to spawn: `pytest`" in output:
+        return "```\n⚠️ Pytest не установлен. Установите: uv add --group dev pytest pytest-cov\n```\n"
+
+    lines = output.split("\n")
+    coverage_lines = [line for line in lines if line.startswith("TOTAL")]
+    summary_lines = [line for line in lines if line.startswith("=") and ("passed" in line or "failed" in line)]
+
+    parts = ["### 📊 Результаты тестов\n", "```"]
+    if result.returncode != 0:
+        parts.append("❌ Некоторые тесты не прошли!")
+    parts.extend(summary_lines or lines[-10:])
+    if coverage_lines:
+        parts.append(f"📈 Покрытие: {coverage_lines[-1]}")
+    parts.append("```\n")
+    parts.append("> 📊 **HTML отчёт покрытия**: [`htmlcov/index.html`](htmlcov/index.html)\n")
+    return "\n".join(parts)
 
 
-def run_tests_and_get_results_main() -> str:
-    """Запускает pytest с coverage и возвращает форматированный вывод."""
-    print("\n🧪 Запуск тестов с coverage...")
-
-    try:
-        # Запускаем pytest с coverage
-        result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "pytest",
-                "tests/test_main.py",
-                "--cov=main",
-                "--cov-report=term-missing",
-                "--cov-report=html:htmlcov/main",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        output = result.stdout + result.stderr
-
-        # Парсим coverage summary
-        coverage_summary = ""
-        for line in output.split("\n"):
-            if "TOTAL" in line or "Coverage" in line or "%" in line:
-                coverage_summary += line + "\n"
-
-        # Форматируем вывод для Markdown
-        formatted_output = "### 📊 Результаты тестов main.py\n\n"
-        formatted_output += "```\n"
-
-        # Добавляем основную информацию
-        if "FAILED" in output or "ERROR" in output:
-            formatted_output += "❌ Некоторые тесты не прошли!\n\n"
-
-        # Выводим summary coverage
-        if coverage_summary:
-            formatted_output += "📈 Покрытие кода:\n"
-            formatted_output += coverage_summary + "\n"
-
-        # Выводим последние строки с результатами
-        lines = output.split("\n")
-        test_lines = []
-        for line in lines[-30:]:  # Последние 30 строк
-            if any(keyword in line for keyword in ["PASSED", "FAILED", "ERROR", "test_", "===", "---"]):
-                test_lines.append(line)
-
-        if test_lines:
-            formatted_output += "🎯 Результаты тестов main.py:\n"
-            formatted_output += "\n".join(test_lines[-20:])  # Последние 20 строк
-
-        formatted_output += "\n```\n\n"
-
-        # Добавляем ссылку на HTML отчёт
-        formatted_output += "> 📊 **HTML отчёт покрытия**: [`htmlcov/index.html`](htmlcov/main/index.html)\n\n"
-
-        return formatted_output
-
-    except subprocess.CalledProcessError as e:
-        return f"```\n❌ Ошибка при запуске тестов: {e}\n```\n"
-    except FileNotFoundError:
-        return "```\n⚠️ Pytest не найден. Установите: poetry add --group dev pytest pytest-cov\n```\n"
-
-
-def update_readme_with_api_table(api_table: str) -> bool:
-    """Обновляет README.md, вставляя таблицу между маркерами."""
-    if not Path(README_FILE).exists():
-        print(f"❌ Файл {README_FILE} не найден!")
+def replace_section(marker: str, body: str) -> bool:
+    """Заменяет содержимое между маркерами <!-- СЕКЦИЯ_AUTO_<marker>: СТАРТ/КОНЕЦ --> в README."""
+    if not README_FILE.exists():
+        print(f"❌ Файл {README_FILE.name} не найден!")
         return False
 
-    with open(README_FILE, encoding="utf-8") as f:
-        content = f.read()
+    content = README_FILE.read_text(encoding="utf-8")
+    start, end = f"<!-- СЕКЦИЯ_AUTO_{marker}: СТАРТ -->", f"<!-- СЕКЦИЯ_AUTO_{marker}: КОНЕЦ -->"
+    pattern = re.compile(re.escape(start) + r".*?" + re.escape(end), re.DOTALL)
+    new_section = f"{start}\n{body}\n{end}"
 
-    pattern = r"(<!-- СЕКЦИЯ_AUTO_API: СТАРТ -->).*?(<!-- СЕКЦИЯ_AUTO_API: КОНЕЦ -->)"
-    docs_path = str(DOCS_OUTPUT_DIR).replace("\\", "/")
-
-    new_section = f"""<!-- СЕКЦИЯ_AUTO_API: СТАРТ -->
-<details>
-<summary>📚 Документация API (развёрнуть)</summary>
-
-*Этот раздел генерируется автоматически из docstring.*
-
-| Модуль | Функция/Класс | Краткое описание |
-|--------|---------------|------------------|
-{api_table}
-
-> 📘 **Полная документация** с примерами и описанием параметров доступна в папке [`{docs_path}`]({docs_path}).
-</details>
-<!-- СЕКЦИЯ_AUTO_API: КОНЕЦ -->"""
-
-    if re.search(pattern, content, re.DOTALL):
-        new_content = re.sub(pattern, new_section, content, flags=re.DOTALL)
-        print("✅ Обновлена существующая секция API в README.md")
+    if pattern.search(content):
+        # lambda, чтобы re.sub не интерпретировал обратные слеши в тексте
+        content = pattern.sub(lambda _: new_section, content, count=1)
+        print(f"✅ Обновлена секция {marker}")
     else:
-        new_content = content + "\n\n" + new_section
-        print("⚠️ Маркеры не найдены, секция добавлена в конец README.md")
+        content = content.rstrip() + "\n\n" + new_section + "\n"
+        print(f"⚠️ Маркеры {marker} не найдены, секция добавлена в конец README")
 
-    with open(README_FILE, "w", encoding="utf-8") as f:
-        f.write(new_content)
-
+    README_FILE.write_text(content, encoding="utf-8")
     return True
 
 
-def update_readme_with_project_structure(structure: str) -> bool:
-    """Обновляет README.md, вставляя структуру проекта между маркерами."""
-    if not Path(README_FILE).exists():
-        print(f"❌ Файл {README_FILE} не найден!")
-        return False
-
-    with open(README_FILE, encoding="utf-8") as f:
-        content = f.read()
-
-    pattern = r"(<!-- СЕКЦИЯ_AUTO_STRUCTURE: СТАРТ -->).*?(<!-- СЕКЦИЯ_AUTO_STRUCTURE: КОНЕЦ -->)"
-
-    new_section = f"""<!-- СЕКЦИЯ_AUTO_STRUCTURE: СТАРТ -->
-<details>
-<summary>📁 Структура проекта (развёрнуть)</summary>
-
-*Этот раздел генерируется автоматически.*
-
-{structure}
-
-</details>
-<!-- СЕКЦИЯ_AUTO_STRUCTURE: КОНЕЦ -->"""
-
-    if re.search(pattern, content, re.DOTALL):
-        new_content = re.sub(pattern, new_section, content, flags=re.DOTALL)
-        print("✅ Обновлена существующая секция структуры в README.md")
-    else:
-        # Вставляем после секции API
-        api_pattern = r"(<!-- СЕКЦИЯ_AUTO_API: КОНЕЦ -->)"
-        if re.search(api_pattern, content):
-            new_content = re.sub(api_pattern, f"<!-- СЕКЦИЯ_AUTO_API: КОНЕЦ -->\n\n{new_section}", content, count=1)
-            print("✅ Секция структуры добавлена после секции API")
-        else:
-            new_content = content + "\n\n" + new_section
-            print("⚠️ Маркеры API не найдены, структура добавлена в конец README.md")
-
-    with open(README_FILE, "w", encoding="utf-8") as f:
-        f.write(new_content)
-
-    return True
-
-
-def update_readme_with_test_section(test_results: str) -> bool:
-    """Обновляет README.md, вставляя результаты тестов между маркерами."""
-    if not Path(README_FILE).exists():
-        print(f"❌ Файл {README_FILE} не найден!")
-        return False
-
-    with open(README_FILE, encoding="utf-8") as f:
-        content = f.read()
-
-    pattern = r"(<!-- СЕКЦИЯ_AUTO_TEST: СТАРТ -->).*?(<!-- СЕКЦИЯ_AUTO_TEST: КОНЕЦ -->)"
-
-    # Используем lambda функцию для замены, чтобы re.sub не интерпретировал test_results
-    def replace_section(match: re.Match) -> str:
-        return f"""<!-- СЕКЦИЯ_AUTO_TEST: СТАРТ -->
-<details>
-<summary>📊 Результаты тестов и покрытие (развёрнуть)</summary>
-{test_results}
-</details>
-<!-- СЕКЦИЯ_AUTO_TEST: КОНЕЦ -->"""
-
-    if re.search(pattern, content, re.DOTALL):
-        new_content = re.sub(pattern, replace_section, content, flags=re.DOTALL)
-        print("✅ Обновлена существующая секция тестирования в README.md")
-        with open(README_FILE, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        return True
-    else:
-        print("⚠️ Маркеры <!-- СЕКЦИЯ_AUTO_TEST: СТАРТ/КОНЕЦ --> не найдены в README.md")
-        print("   Добавьте их вручную в раздел 'Тестирование'")
-        return False
+def details(summary: str, body: str) -> str:
+    """Оборачивает блок в сворачиваемый <details>."""
+    return f"<details>\n<summary>{summary}</summary>\n\n{body}\n\n</details>"
 
 
 def main() -> None:
-    """Проверяет докстринги и обновляет раздел README."""
+    """Собирает docstring, обновляет секции README и подробную документацию."""
     print("=" * 50)
     print("🔍 Генератор документации README из docstring")
     print("=" * 50)
 
-    # ===== 1. Поиск Python файлов =====
-    py_files = []
-
-    for source_dir in SOURCE_DIRS:
-        source_path = Path(source_dir)
-        if not source_path.exists():
-            print(f"⚠️ Папка {source_dir} не найдена, пропускаем")
-            continue
-
-        for py_file in source_path.rglob("*.py"):
-            if any(excluded in py_file.parts for excluded in EXCLUDE_DIRS):
-                continue
-            if py_file.name in EXCLUDE_FILES:
-                continue
-            py_files.append(py_file)
-
-    for py_file in Path(".").glob("*.py"):
-        if py_file.name in EXCLUDE_FILES:
-            continue
-        if any(excluded in py_file.parts for excluded in EXCLUDE_DIRS):
-            continue
-        py_files.append(py_file)
-
-    print(f"📁 Найдено Python файлов: {len(py_files)}")
-
+    py_files = find_python_files()
+    print(f"📁 Найдено Python-файлов: {len(py_files)}")
     if not py_files:
-        print("❌ Нет Python файлов для обработки!")
+        print("❌ Нет Python-файлов для обработки!")
         return
 
-    # ===== 2. Извлечение документации =====
-    all_docs = []
+    all_docs: list[dict[str, Any]] = []
     for py_file in py_files:
         docs = extract_docstrings_from_file(py_file)
         if docs:
-            print(f"  ✓ {py_file}: {len(docs)} элементов")
+            print(f"  ✓ {py_file.relative_to(PROJECT_ROOT).as_posix()}: {len(docs)} элементов")
             all_docs.extend(docs)
-
-    if not all_docs:
-        print("⚠️ Не найдено docstring в файлах.")
-        return
-
     print(f"\n📊 Всего документировано: {len(all_docs)} элементов")
 
-    # ===== 3. Генерация таблицы API =====
-    print("\n📝 Генерация таблицы API...")
-    api_table = generate_api_table(all_docs)
+    docs_path = DOCS_OUTPUT_DIR.as_posix()
+    api_body = "\n".join(
+        [
+            "*Этот раздел генерируется автоматически из docstring.*\n",
+            "| Модуль | Функция/Класс | Краткое описание |",
+            "|--------|---------------|------------------|",
+            generate_api_table(all_docs),
+            f"\n> 📘 **Полная документация** доступна в папке [`{docs_path}`]({docs_path}).",
+        ]
+    )
+    replace_section("API", details("📚 Документация API (развёрнуть)", api_body))
 
-    if update_readme_with_api_table(api_table):
-        print("✅ README.md обновлён (секция API)")
+    count = generate_detailed_docs(all_docs)
+    print(f"✅ Создано {count} страниц документации в {docs_path}")
 
-    # ===== 4. Генерация структуры проекта =====
-    print("\n📁 Генерация структуры проекта...")
-    project_structure = generate_project_structure()
+    structure_body = "*Этот раздел генерируется автоматически.*\n\n" + generate_project_structure()
+    replace_section("STRUCTURE", details("📁 Структура проекта (развёрнуть)", structure_body))
 
-    if update_readme_with_project_structure(project_structure):
-        print("✅ README.md обновлён (секция структуры)")
+    if "СЕКЦИЯ_AUTO_TEST" in README_FILE.read_text(encoding="utf-8") or has_tests():
+        replace_section("TEST", details("📊 Результаты тестов и покрытие (развёрнуть)", run_tests_and_get_results()))
 
-    # ===== 5. Генерация детальной документации =====
-    print(f"\n📚 Генерация детальной документации в {DOCS_OUTPUT_DIR}...")
-    generate_detailed_docs(all_docs)
-    print(f"✅ Создано {len(all_docs)} страниц документации")
-
-    # ===== 6. Запуск тестов и обновление секции =====
-    print("\n" + "=" * 50)
-    test_results_src = run_tests_and_get_results_src()
-    # test_results_main = run_tests_and_get_results_main()
-    update_readme_with_test_section(test_results_src)
-    print("=" * 50)
-
-    print("\n" + "=" * 50)
-    print("🎉 Готово!")
-    print("=" * 50)
+    print("\n🎉 Готово!")
 
 
 if __name__ == "__main__":
