@@ -9,7 +9,7 @@ from lms.serializers import CourseSerializer, LessonSerializer
 class CourseViewSet(viewsets.ModelViewSet):
     """CRUD курсов на основе ViewSet."""
 
-    queryset = Course.objects.all()
+    queryset = Course.objects.prefetch_related("lessons")
     serializer_class = CourseSerializer
 
 
