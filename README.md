@@ -15,8 +15,13 @@
 - **Связь курс → уроки**: в одном курсе много уроков, при удалении курса удаляются его уроки
 - **Редактирование профиля любого пользователя** через `RetrieveUpdateAPIView` (доп. задание)
 - **Загрузка изображений**: превью курсов и уроков, аватары пользователей (`MEDIA_ROOT`)
+- **Количество и список уроков в курсе**: `lessons_count` через `SerializerMethodField` и вложенный `LessonSerializer`
+- **Платежи** `Payment`: пользователь, дата, оплаченный курс или урок, сумма, способ оплаты (наличные / перевод)
+- **Фильтрация платежей** по курсу, уроку и способу оплаты, сортировка по дате (`django-filter`, `OrderingFilter`)
+- **История платежей в профиле** пользователя с названиями курсов и уроков
+- **Фикстуры** с курсами, уроками, пользователями и платежами
 - **Коллекция Postman** для проверки всех эндпоинтов
-- **Админ-панель** для курсов, уроков и пользователей
+- **Админ-панель** для курсов, уроков, пользователей и платежей
 
 ## 📋 Содержание
 
@@ -39,6 +44,7 @@
 | **Язык** | Python 3.14 |
 | **Фреймворк** | Django 6.1 |
 | **API** | Django REST framework 3.18 |
+| **Фильтрация** | django-filter |
 | **База данных** | PostgreSQL |
 | **Изображения** | Pillow |
 | **Управление зависимостями** | uv |
@@ -70,6 +76,14 @@ uv run python manage.py migrate
 uv run python manage.py createsuperuser
 uv run python manage.py runserver
 ```
+
+Загрузка тестовых данных (курсы, уроки, пользователи, платежи):
+
+```bash
+uv run python manage.py loaddata courses payments
+```
+
+Пароль тестовых пользователей `ivan@example.com` и `anna@example.com`: `test12345`.
 
 <div id="конфигурация"></div>
 
@@ -110,7 +124,7 @@ API доступно по адресу http://127.0.0.1:8000/
 
 | Метод | URL | Описание |
 |-------|-----|----------|
-| GET | `/courses/` | Список курсов |
+| GET | `/courses/` | Список курсов с количеством и списком уроков |
 | POST | `/courses/` | Создание курса |
 | GET | `/courses/<id>/` | Просмотр курса |
 | PUT / PATCH | `/courses/<id>/` | Изменение курса |
@@ -120,14 +134,30 @@ API доступно по адресу http://127.0.0.1:8000/
 | GET | `/lessons/<id>/` | Просмотр урока |
 | PUT / PATCH | `/lessons/<id>/update/` | Изменение урока |
 | DELETE | `/lessons/<id>/delete/` | Удаление урока |
-| GET | `/users/<id>/` | Просмотр профиля пользователя |
+| GET | `/users/<id>/` | Профиль пользователя с историей платежей |
 | PUT / PATCH | `/users/<id>/` | Редактирование профиля пользователя |
+| GET | `/users/payments/` | Список платежей с фильтрацией и сортировкой |
+
+Поля курса в ответе: `lessons_count` — количество уроков, `lessons` — список уроков.
+
+### 🔎 Фильтрация платежей
+
+| Параметр | Пример | Описание |
+|----------|--------|----------|
+| `ordering` | `?ordering=payment_date` / `?ordering=-payment_date` | Сортировка по дате оплаты по возрастанию / убыванию |
+| `paid_course` | `?paid_course=101` | Платежи за курс |
+| `paid_lesson` | `?paid_lesson=104` | Платежи за урок |
+| `payment_method` | `?payment_method=cash` / `?payment_method=transfer` | Наличные / перевод на счёт |
+
+Параметры можно комбинировать: `/users/payments/?paid_course=101&payment_method=cash`.
 
 Поля с изображениями (`preview`, `avatar`) передаются через `multipart/form-data`.
 
 ### 🧪 Проверка в Postman
 
 Коллекция запросов: [`docs/postman/sp-lms.postman_collection.json`](docs/postman/sp-lms.postman_collection.json)
+
+Для запросов к платежам сначала загрузите фикстуры: loaddata courses payments.
 
 1. Postman → **Import** → выберите файл коллекции.
 2. Запускайте запросы по порядку: курсы → уроки → пользователи, удаление курса последним.
@@ -139,7 +169,7 @@ API доступно по адресу http://127.0.0.1:8000/
 
 Админка доступна по адресу: /admin
 
-Зарегистрированные модели: Course, Lesson, CustomUser
+Зарегистрированные модели: Course, Lesson, CustomUser, Payment
 
 <div id="разработка"></div>
 
@@ -167,6 +197,8 @@ sp-lms/
 │   └── postman/
 │       └── sp-lms.postman_collection.json
 ├── lms/
+│   ├── fixtures/
+│   │   └── courses.json
 │   ├── migrations/
 │   │   ├── 0001_initial.py
 │   │   └── __init__.py
@@ -178,8 +210,11 @@ sp-lms/
 │   ├── urls.py
 │   └── views.py
 ├── users/
+│   ├── fixtures/
+│   │   └── payments.json
 │   ├── migrations/
 │   │   ├── 0001_initial.py
+│   │   ├── 0002_payment.py
 │   │   └── __init__.py
 │   ├── __init__.py
 │   ├── admin.py
@@ -250,10 +285,11 @@ uv run pre-commit run --all-files
 | | [📦 Lesson](docs/api/lms/models.md#Lesson) | Модель урока. |
 | | [📦 Lesson.Meta](docs/api/lms/models.md#Lesson-Meta) | Мета-параметры модели Lesson. |
 | [**`lms/serializers.py`**](docs/api/lms/serializers.md) | | |
-| | [📦 CourseSerializer](docs/api/lms/serializers.md#CourseSerializer) | Сериализатор курса. |
-| | [📦 CourseSerializer.Meta](docs/api/lms/serializers.md#CourseSerializer-Meta) | Мета-параметры сериализатора курса. |
 | | [📦 LessonSerializer](docs/api/lms/serializers.md#LessonSerializer) | Сериализатор урока. |
 | | [📦 LessonSerializer.Meta](docs/api/lms/serializers.md#LessonSerializer-Meta) | Мета-параметры сериализатора урока. |
+| | [📦 CourseSerializer](docs/api/lms/serializers.md#CourseSerializer) | Сериализатор курса с количеством уроков и списком уроков. |
+| | [📦 CourseSerializer.Meta](docs/api/lms/serializers.md#CourseSerializer-Meta) | Мета-параметры сериализатора курса. |
+| | [⚙️ CourseSerializer.get_lessons_count](docs/api/lms/serializers.md#CourseSerializer-get_lessons_count) | Возвращает количество уроков курса. |
 | [**`lms/views.py`**](docs/api/lms/views.md) | | |
 | | [📦 CourseViewSet](docs/api/lms/views.md#CourseViewSet) | CRUD курсов на основе ViewSet. |
 | | [📦 LessonCreateAPIView](docs/api/lms/views.md#LessonCreateAPIView) | Создание урока. |
@@ -265,6 +301,7 @@ uv run pre-commit run --all-files
 | | [🔧 main](docs/api/manage.md#main) | Run administrative tasks. |
 | [**`users/admin.py`**](docs/api/users/admin.md) | | |
 | | [📦 CustomUserAdmin](docs/api/users/admin.md#CustomUserAdmin) | Настройки админки для пользователей. |
+| | [📦 PaymentAdmin](docs/api/users/admin.md#PaymentAdmin) | Настройки админки для платежей. |
 | [**`users/apps.py`**](docs/api/users/apps.md) | | |
 | | [📦 UsersConfig](docs/api/users/apps.md#UsersConfig) | Конфигурация приложения пользователей. |
 | [**`users/managers.py`**](docs/api/users/managers.md) | | |
@@ -274,11 +311,19 @@ uv run pre-commit run --all-files
 | [**`users/models.py`**](docs/api/users/models.md) | | |
 | | [📦 CustomUser](docs/api/users/models.md#CustomUser) | Кастомная модель пользователя с авторизацией по email. |
 | | [📦 CustomUser.Meta](docs/api/users/models.md#CustomUser-Meta) | Мета-параметры модели CustomUser. |
+| | [📦 Payment](docs/api/users/models.md#Payment) | Модель платежа за курс или отдельный урок. |
+| | [📦 Payment.PaymentMethod](docs/api/users/models.md#Payment-PaymentMethod) | Способы оплаты. |
+| | [📦 Payment.Meta](docs/api/users/models.md#Payment-Meta) | Мета-параметры модели Payment. |
 | [**`users/serializers.py`**](docs/api/users/serializers.md) | | |
-| | [📦 UserProfileSerializer](docs/api/users/serializers.md#UserProfileSerializer) | Сериализатор профиля пользователя. |
+| | [📦 PaymentSerializer](docs/api/users/serializers.md#PaymentSerializer) | Сериализатор платежа. |
+| | [📦 PaymentSerializer.Meta](docs/api/users/serializers.md#PaymentSerializer-Meta) | Мета-параметры сериализатора платежа. |
+| | [📦 PaymentHistorySerializer](docs/api/users/serializers.md#PaymentHistorySerializer) | Сериализатор платежа для истории в профиле: с названиями курса, урока и способа оплаты. |
+| | [📦 PaymentHistorySerializer.Meta](docs/api/users/serializers.md#PaymentHistorySerializer-Meta) | Мета-параметры сериализатора истории платежей. |
+| | [📦 UserProfileSerializer](docs/api/users/serializers.md#UserProfileSerializer) | Сериализатор профиля пользователя с историей платежей. |
 | | [📦 UserProfileSerializer.Meta](docs/api/users/serializers.md#UserProfileSerializer-Meta) | Мета-параметры сериализатора профиля. |
 | [**`users/views.py`**](docs/api/users/views.md) | | |
-| | [📦 UserProfileAPIView](docs/api/users/views.md#UserProfileAPIView) | Просмотр и редактирование профиля любого пользователя. |
+| | [📦 UserProfileAPIView](docs/api/users/views.md#UserProfileAPIView) | Просмотр и редактирование профиля любого пользователя с историей платежей. |
+| | [📦 PaymentListAPIView](docs/api/users/views.md#PaymentListAPIView) | Список платежей с фильтрацией по курсу, уроку, способу оплаты и сортировкой по дате. |
 
 > 📘 **Полная документация** доступна в папке [`docs/api`](docs/api).
 
@@ -305,6 +350,12 @@ uv run pre-commit run --all-files
 - [x] Проверка эндпоинтов в Postman, экспорт коллекции
 - [x] Проверить линтеры (`ruff`, `mypy`), pre-commit
 - [x] Обновить README
+- [x] Поле `lessons_count` в сериализаторе курса через `SerializerMethodField`
+- [x] Вложенный вывод уроков в сериализаторе курса
+- [x] Модель `Payment` в приложении users
+- [x] Фикстуры курсов, уроков, пользователей и платежей
+- [x] Эндпоинт списка платежей с фильтрацией (`django-filter`) и сортировкой по дате
+- [x] История платежей в профиле пользователя (доп. задание)
 
 <div id="команда-проекта"></div>
 

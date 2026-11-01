@@ -1,0 +1,75 @@
+[
+  {
+    "model": "lms.course",
+    "pk": 101,
+    "fields": {
+      "title": "Python-разработчик",
+      "preview": "",
+      "description": "Основы Python: синтаксис, типы данных, функции и ООП."
+    }
+  },
+  {
+    "model": "lms.course",
+    "pk": 102,
+    "fields": {
+      "title": "Django REST framework",
+      "preview": "",
+      "description": "Создание API на Django: сериализаторы, ViewSet, фильтрация."
+    }
+  },
+  {
+    "model": "lms.lesson",
+    "pk": 101,
+    "fields": {
+      "course": 101,
+      "title": "Переменные и типы данных",
+      "description": "int, str, list, dict и приведение типов.",
+      "preview": "",
+      "video_url": "https://www.youtube.com/watch?v=python-1"
+    }
+  },
+  {
+    "model": "lms.lesson",
+    "pk": 102,
+    "fields": {
+      "course": 101,
+      "title": "Функции",
+      "description": "Аргументы, return, области видимости.",
+      "preview": "",
+      "video_url": "https://www.youtube.com/watch?v=python-2"
+    }
+  },
+  {
+    "model": "lms.lesson",
+    "pk": 103,
+    "fields": {
+      "course": 101,
+      "title": "Классы и объекты",
+      "description": "Основы ООП в Python.",
+      "preview": "",
+      "video_url": "https://www.youtube.com/watch?v=python-3"
+    }
+  },
+  {
+    "model": "lms.lesson",
+    "pk": 104,
+    "fields": {
+      "course": 102,
+      "title": "Сериализаторы",
+      "description": "ModelSerializer, SerializerMethodField, вложенность.",
+      "preview": "",
+      "video_url": "https://www.youtube.com/watch?v=drf-1"
+    }
+  },
+  {
+    "model": "lms.lesson",
+    "pk": 105,
+    "fields": {
+      "course": 102,
+      "title": "Фильтрация",
+      "description": "django-filter и OrderingFilter.",
+      "preview": "",
+      "video_url": "https://www.youtube.com/watch?v=drf-2"
+    }
+  }
+]

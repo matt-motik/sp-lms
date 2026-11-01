@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "sp-lms",
-    "description": "CRUD курсов (ViewSet), уроков (Generic) и профиля пользователя. Запускать по порядку; удаление курса — последним. В запросах с картинками выберите файл в поле типа File.",
+    "description": "ДЗ 1: CRUD курсов (ViewSet), уроков (Generic), профиль. ДЗ 2: количество и список уроков в курсе, платежи с фильтрами, история платежей в профиле. Для запросов ДЗ 2 сначала загрузите фикстуры: loaddata courses payments.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -85,6 +85,29 @@
             "method": "DELETE",
             "header": [],
             "url": "{{base_url}}/courses/1/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Courses: уроки и количество",
+      "item": [
+        {
+          "name": "Course 101 with lessons",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/courses/101/"
+          },
+          "response": []
+        },
+        {
+          "name": "Course 102 with lessons",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/courses/102/"
           },
           "response": []
         }
@@ -222,6 +245,92 @@
                 }
               ]
             }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payments (фильтры)",
+      "item": [
+        {
+          "name": "All payments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/payments/"
+          },
+          "response": []
+        },
+        {
+          "name": "Order by date asc",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/payments/?ordering=payment_date"
+          },
+          "response": []
+        },
+        {
+          "name": "Order by date desc",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/payments/?ordering=-payment_date"
+          },
+          "response": []
+        },
+        {
+          "name": "Filter by course",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/payments/?paid_course=101"
+          },
+          "response": []
+        },
+        {
+          "name": "Filter by lesson",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/payments/?paid_lesson=104"
+          },
+          "response": []
+        },
+        {
+          "name": "Filter cash",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/payments/?payment_method=cash"
+          },
+          "response": []
+        },
+        {
+          "name": "Filter transfer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/payments/?payment_method=transfer"
+          },
+          "response": []
+        },
+        {
+          "name": "Course + cash",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/payments/?paid_course=101&payment_method=cash"
+          },
+          "response": []
+        },
+        {
+          "name": "Profile with payment history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/101/"
           },
           "response": []
         }
