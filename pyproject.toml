@@ -7,6 +7,7 @@ dependencies = [
     "django-environ>=0.14.0",
     "django-filter>=26.2",
     "djangorestframework>=3.18.3",
+    "djangorestframework-simplejwt>=5.5.1",
     "pillow>=13.0.0",
     "psycopg2-binary>=2.9.13",
 ]
@@ -16,7 +17,6 @@ dev = [
     "pre-commit>=4.7.0",
 ]
 lint = [
-    "djangorestframework-stubs>=3.18.1",
     "mypy>=2.4.0",
     "ruff>=0.17.2",
 ]

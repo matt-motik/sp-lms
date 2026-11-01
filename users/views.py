@@ -1,13 +1,28 @@
 """Контроллеры приложения users."""
 
-from rest_framework import generics
+from rest_framework import generics, mixins, viewsets
+from rest_framework.permissions import AllowAny
 
 from users.models import CustomUser, Payment
-from users.serializers import PaymentSerializer, UserProfileSerializer
+from users.serializers import PaymentSerializer, UserProfileSerializer, UserRegisterSerializer
 
 
-class UserProfileAPIView(generics.RetrieveUpdateAPIView):
-    """Просмотр и редактирование профиля любого пользователя с историей платежей."""
+class UserRegisterAPIView(generics.CreateAPIView):
+    """Регистрация нового пользователя. Доступна без авторизации."""
+
+    queryset = CustomUser.objects.all()
+    serializer_class = UserRegisterSerializer
+    permission_classes = (AllowAny,)
+
+
+class UserViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Список, просмотр, редактирование и удаление пользователей."""
 
     queryset = CustomUser.objects.prefetch_related("payments__paid_course", "payments__paid_lesson")
     serializer_class = UserProfileSerializer
