@@ -35,7 +35,11 @@
       "phone": "+79007654321",
       "city": "Казань",
       "avatar": "",
-      "groups": [],
+      "groups": [
+        [
+          "moderators"
+        ]
+      ],
       "user_permissions": []
     }
   },
