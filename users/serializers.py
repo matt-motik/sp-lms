@@ -56,6 +56,16 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = ("id", "email", "first_name", "last_name", "phone", "city", "avatar", "payments")
 
 
+class UserPublicSerializer(serializers.ModelSerializer):
+    """Сериализатор чужого профиля: только общая информация, без фамилии, пароля и платежей."""
+
+    class Meta:
+        """Мета-параметры публичного сериализатора профиля."""
+
+        model = CustomUser
+        fields = ("id", "email", "first_name", "phone", "city", "avatar")
+
+
 class UserRegisterSerializer(serializers.ModelSerializer):
     """Сериализатор регистрации пользователя."""
 

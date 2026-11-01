@@ -36,3 +36,13 @@ class IsOwner(BasePermission):
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         """Проверяет, что объект принадлежит текущему пользователю."""
         return bool(obj.owner == request.user)
+
+
+class IsProfileOwner(BasePermission):
+    """Пользователь работает со своим профилем."""
+
+    message = "Редактировать и удалять можно только свой профиль."
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        """Проверяет, что профиль принадлежит текущему пользователю."""
+        return bool(obj == request.user)
