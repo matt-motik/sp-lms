@@ -1,3 +1,13 @@
-from django.shortcuts import render
+"""Контроллеры приложения users."""
 
-# Create your views here.
+from rest_framework import generics
+
+from users.models import CustomUser
+from users.serializers import UserProfileSerializer
+
+
+class UserProfileAPIView(generics.RetrieveUpdateAPIView):
+    """Просмотр и редактирование профиля любого пользователя."""
+
+    queryset = CustomUser.objects.all()
+    serializer_class = UserProfileSerializer
