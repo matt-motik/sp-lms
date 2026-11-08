@@ -21,11 +21,12 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 
 class PaymentHistorySerializer(PaymentSerializer):
-    """Сериализатор платежа для истории в профиле: с названиями курса, урока и способа оплаты."""
+    """Сериализатор платежа для истории в профиле: с названиями курса, урока, способа и статуса оплаты."""
 
     paid_course_title = serializers.CharField(source="paid_course.title", read_only=True, default=None)
     paid_lesson_title = serializers.CharField(source="paid_lesson.title", read_only=True, default=None)
     payment_method_display = serializers.CharField(source="get_payment_method_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     class Meta:
         """Мета-параметры сериализатора истории платежей."""
@@ -41,6 +42,8 @@ class PaymentHistorySerializer(PaymentSerializer):
             "amount",
             "payment_method",
             "payment_method_display",
+            "status",
+            "status_display",
         )
 
 
