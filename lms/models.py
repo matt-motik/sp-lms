@@ -56,3 +56,29 @@ class Lesson(models.Model):
     def __str__(self) -> str:
         """Возвращает название урока."""
         return str(self.title)
+
+
+class Subscription(models.Model):
+    """Модель подписки пользователя на обновления курса."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="subscriptions",
+        verbose_name="Пользователь",
+    )
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="subscriptions", verbose_name="Курс")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата подписки")
+
+    class Meta:
+        """Мета-параметры модели Subscription."""
+
+        verbose_name = "Подписка"
+        verbose_name_plural = "Подписки"
+        constraints = [
+            models.UniqueConstraint(fields=("user", "course"), name="unique_user_course_subscription"),
+        ]
+
+    def __str__(self) -> str:
+        """Возвращает пользователя и курс подписки."""
+        return f"{self.user} — {self.course}"
