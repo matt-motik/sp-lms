@@ -29,7 +29,17 @@ class CourseSerializer(serializers.ModelSerializer):
         """Мета-параметры сериализатора курса."""
 
         model = Course
-        fields = ("id", "title", "preview", "description", "owner", "lessons_count", "lessons", "is_subscribed")
+        fields = (
+            "id",
+            "title",
+            "preview",
+            "description",
+            "price",
+            "owner",
+            "lessons_count",
+            "lessons",
+            "is_subscribed",
+        )
         read_only_fields = ("owner",)
         validators = [YoutubeLinkValidator(field="description")]
 

@@ -1,6 +1,9 @@
 """Модели приложения lms."""
 
+from decimal import Decimal
+
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 
 
@@ -10,6 +13,13 @@ class Course(models.Model):
     title = models.CharField(max_length=255, verbose_name="Название")
     preview = models.ImageField(upload_to="lms/courses/", blank=True, null=True, verbose_name="Превью")
     description = models.TextField(blank=True, verbose_name="Описание")
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0"))],
+        verbose_name="Цена",
+    )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
