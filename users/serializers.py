@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError
 from rest_framework import serializers
 
+from lms.models import Course
 from users.models import CustomUser, Payment
 
 
@@ -18,6 +19,37 @@ class PaymentSerializer(serializers.ModelSerializer):
 
         model = Payment
         fields = "__all__"
+
+
+class PaymentCreateSerializer(serializers.Serializer):
+    """Сериализатор запроса на оплату курса: принимает ID курса."""
+
+    course = serializers.PrimaryKeyRelatedField(queryset=Course.objects.all(), help_text="ID курса для оплаты.")
+
+    def validate_course(self, value: Course) -> Course:
+        """Проверяет, что у курса указана цена."""
+        if value.price <= 0:
+            raise serializers.ValidationError("У курса не указана цена, оплатить его нельзя.")
+        return value
+
+
+class PaymentStripeSerializer(serializers.ModelSerializer):
+    """Сериализатор платежа через Stripe: данные платежа и ссылка на оплату."""
+
+    class Meta:
+        """Мета-параметры сериализатора платежа через Stripe."""
+
+        model = Payment
+        fields = (
+            "id",
+            "payment_date",
+            "paid_course",
+            "amount",
+            "payment_method",
+            "status",
+            "stripe_session_id",
+            "payment_url",
+        )
 
 
 class PaymentHistorySerializer(PaymentSerializer):

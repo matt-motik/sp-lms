@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from django.db import transaction
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -11,19 +12,33 @@ from drf_spectacular.utils import (
     extend_schema_view,
     inline_serializer,
 )
-from rest_framework import generics, mixins, serializers, viewsets
+from rest_framework import generics, mixins, serializers, status, viewsets
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from config.schema import FORBIDDEN, NOT_FOUND, UNAUTHORIZED, VALIDATION_ERROR, id_parameter, ordering_parameter
+from config.schema import (
+    FORBIDDEN,
+    NOT_FOUND,
+    STRIPE_ERROR,
+    UNAUTHORIZED,
+    VALIDATION_ERROR,
+    id_parameter,
+    ordering_parameter,
+)
 from users.models import CustomUser, Payment
 from users.permissions import IsProfileOwner
 from users.serializers import (
+    PaymentCreateSerializer,
     PaymentSerializer,
+    PaymentStripeSerializer,
     UserProfileSerializer,
     UserPublicSerializer,
     UserRegisterSerializer,
 )
+from users.services import create_stripe_price, create_stripe_product, create_stripe_session
 
 
 @extend_schema(
@@ -168,7 +183,7 @@ class UserViewSet(
         OpenApiParameter(
             "payment_method",
             OpenApiTypes.STR,
-            description="Способ оплаты: cash — наличные, transfer — перевод на счёт.",
+            description="Способ оплаты: cash — наличные, transfer — перевод на счёт, stripe — онлайн-оплата Stripe.",
             enum=Payment.PaymentMethod.values,
         ),
         ordering_parameter(
@@ -185,3 +200,43 @@ class PaymentListAPIView(generics.ListAPIView):
     serializer_class = PaymentSerializer
     filterset_fields = ("paid_course", "paid_lesson", "payment_method")
     ordering_fields = ("payment_date",)
+
+
+class PaymentCreateAPIView(APIView):
+    """Оплата курса через Stripe: создаёт платёж и возвращает ссылку на оплату."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["Платежи"],
+        summary="Оплата курса через Stripe",
+        description="Создаёт платёж на сумму цены курса, продукт, цену и сессию оплаты в Stripe. "
+        "Возвращает данные платежа со ссылкой на оплату payment_url. "
+        "Если Stripe вернул ошибку, платёж не сохраняется.",
+        request=PaymentCreateSerializer,
+        responses={
+            201: PaymentStripeSerializer,
+            400: VALIDATION_ERROR,
+            401: UNAUTHORIZED,
+            502: STRIPE_ERROR,
+        },
+    )
+    def post(self, request: Request) -> Response:
+        """Создаёт платёж в системе и сессию оплаты в Stripe."""
+        serializer = PaymentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        course = serializer.validated_data["course"]
+
+        with transaction.atomic():
+            payment = Payment.objects.create(
+                user=request.user,
+                paid_course=course,
+                amount=course.price,
+                payment_method=Payment.PaymentMethod.STRIPE,
+            )
+            payment.stripe_product_id = create_stripe_product(course)
+            payment.stripe_price_id = create_stripe_price(payment.stripe_product_id, payment.amount)
+            payment.stripe_session_id, payment.payment_url = create_stripe_session(payment.stripe_price_id, payment)
+            payment.save()
+
+        return Response(PaymentStripeSerializer(payment).data, status=status.HTTP_201_CREATED)

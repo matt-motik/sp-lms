@@ -4,6 +4,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from users.views import (
+    PaymentCreateAPIView,
     PaymentListAPIView,
     UserRegisterAPIView,
     UserTokenObtainPairView,
@@ -23,4 +24,5 @@ urlpatterns = [
     path("token/", UserTokenObtainPairView.as_view(), name="token-obtain-pair"),
     path("token/refresh/", UserTokenRefreshView.as_view(), name="token-refresh"),
     path("payments/", PaymentListAPIView.as_view(), name="payment-list"),
+    path("payments/create/", PaymentCreateAPIView.as_view(), name="payment-create"),
 ] + router.urls

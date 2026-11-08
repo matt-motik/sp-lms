@@ -14,6 +14,10 @@ VALIDATION_ERROR = OpenApiResponse(
 UNAUTHORIZED = OpenApiResponse(response=ErrorSerializer, description="Токен не передан или недействителен.")
 FORBIDDEN = OpenApiResponse(response=ErrorSerializer, description="Недостаточно прав для действия.")
 NOT_FOUND = OpenApiResponse(response=ErrorSerializer, description="Объект не найден.")
+STRIPE_ERROR = OpenApiResponse(
+    response=ErrorSerializer,
+    description="Ошибка платёжного сервиса Stripe: сервис недоступен или отклонил запрос.",
+)
 
 
 def id_parameter(description: str) -> OpenApiParameter:
