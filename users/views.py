@@ -13,6 +13,7 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import generics, mixins, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -25,11 +26,12 @@ from config.schema import (
     STRIPE_ERROR,
     UNAUTHORIZED,
     VALIDATION_ERROR,
+    ErrorSerializer,
     id_parameter,
     ordering_parameter,
 )
 from users.models import CustomUser, Payment
-from users.permissions import IsProfileOwner
+from users.permissions import IsPaymentOwner, IsProfileOwner
 from users.serializers import (
     PaymentCreateSerializer,
     PaymentSerializer,
@@ -38,7 +40,12 @@ from users.serializers import (
     UserPublicSerializer,
     UserRegisterSerializer,
 )
-from users.services import create_stripe_price, create_stripe_product, create_stripe_session
+from users.services import (
+    create_stripe_price,
+    create_stripe_product,
+    create_stripe_session,
+    retrieve_payment_status,
+)
 
 
 @extend_schema(
@@ -240,3 +247,39 @@ class PaymentCreateAPIView(APIView):
             payment.save()
 
         return Response(PaymentStripeSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    tags=["Платежи"],
+    summary="Проверка статуса оплаты в Stripe",
+    description="Запрашивает сессию оплаты в Stripe, сохраняет статус в платеже и возвращает данные платежа. "
+    "Статусы: pending — ожидает оплаты, paid — оплачен, expired — сессия истекла. Доступно только владельцу платежа.",
+    parameters=[id_parameter("ID платежа.")],
+    responses={
+        200: PaymentStripeSerializer,
+        400: OpenApiResponse(response=ErrorSerializer, description="Платёж создан не через Stripe."),
+        401: UNAUTHORIZED,
+        403: FORBIDDEN,
+        404: NOT_FOUND,
+        502: STRIPE_ERROR,
+    },
+)
+class PaymentStatusAPIView(generics.RetrieveAPIView):
+    """Проверка статуса оплаты в Stripe с сохранением статуса в платеже."""
+
+    queryset = Payment.objects.all()
+    serializer_class = PaymentStripeSerializer
+    permission_classes = [IsAuthenticated, IsPaymentOwner]
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Получает статус сессии из Stripe и синхронизирует его с платежом."""
+        payment = self.get_object()
+        if not payment.stripe_session_id:
+            raise ValidationError({"detail": "Платёж создан не через Stripe, статус проверить нельзя."})
+
+        payment_status = retrieve_payment_status(payment.stripe_session_id)
+        if payment.status != payment_status:
+            payment.status = payment_status
+            payment.save(update_fields=["status"])
+
+        return Response(self.get_serializer(payment).data)

@@ -6,6 +6,7 @@ from rest_framework.routers import SimpleRouter
 from users.views import (
     PaymentCreateAPIView,
     PaymentListAPIView,
+    PaymentStatusAPIView,
     UserRegisterAPIView,
     UserTokenObtainPairView,
     UserTokenRefreshView,
@@ -25,4 +26,5 @@ urlpatterns = [
     path("token/refresh/", UserTokenRefreshView.as_view(), name="token-refresh"),
     path("payments/", PaymentListAPIView.as_view(), name="payment-list"),
     path("payments/create/", PaymentCreateAPIView.as_view(), name="payment-create"),
+    path("payments/<int:pk>/status/", PaymentStatusAPIView.as_view(), name="payment-status"),
 ] + router.urls
