@@ -34,6 +34,8 @@ class DocumentationTestCase(APITestCase):
             "/users/token/",
             "/users/token/refresh/",
             "/users/payments/",
+            "/users/payments/create/",
+            "/users/payments/{id}/status/",
         )
         for path in expected:
             with self.subTest(path=path):

@@ -1,13 +1,17 @@
-"""Тесты приложения users: регистрация, JWT, профили и платежи."""
+"""Тесты приложения users: регистрация, JWT, профили, платежи и оплата через Stripe."""
 
 from decimal import Decimal
+from unittest import mock
 
+import stripe
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from lms.models import Course, Lesson
 from users.models import CustomUser, Payment
+from users.services import convert_to_cents
 
 
 class UsersTestCase(APITestCase):
@@ -212,3 +216,173 @@ class PaymentTestCase(UsersTestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+def stripe_object(**fields: str) -> mock.Mock:
+    """Ответ Stripe с нужными полями."""
+    return mock.Mock(**fields)
+
+
+@override_settings(STRIPE_API_KEY="sk_test_fake", STRIPE_CURRENCY="rub")
+class PaymentStripeTestCase(UsersTestCase):
+    """Оплата курса через Stripe и проверка статуса. Stripe подменяется, запросы в сеть не уходят."""
+
+    def setUp(self) -> None:
+        """Задаёт цену курса и авторизует пользователя."""
+        super().setUp()
+        self.course.price = Decimal("15000.00")
+        self.course.save()
+        self.client.force_authenticate(self.user)
+        self.url = reverse("users:payment-create")
+
+    @mock.patch("stripe.checkout.Session.create")
+    @mock.patch("stripe.Price.create")
+    @mock.patch("stripe.Product.create")
+    def test_payment_create(
+        self, product_create: mock.Mock, price_create: mock.Mock, session_create: mock.Mock
+    ) -> None:
+        """Создаются продукт, цена и сессия в Stripe, ID и ссылка сохраняются в платеже."""
+        product_create.return_value = stripe_object(id="prod_1")
+        price_create.return_value = stripe_object(id="price_1")
+        session_create.return_value = stripe_object(id="cs_1", url="https://checkout.stripe.com/c/pay/cs_1")
+
+        response = self.client.post(self.url, {"course": self.course.pk})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["payment_url"], "https://checkout.stripe.com/c/pay/cs_1")
+
+        payment = Payment.objects.get(pk=response.json()["id"])
+        self.assertEqual(payment.user, self.user)
+        self.assertEqual(payment.paid_course, self.course)
+        self.assertEqual(payment.amount, Decimal("15000.00"))
+        self.assertEqual(payment.payment_method, Payment.PaymentMethod.STRIPE)
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+        self.assertEqual(
+            (payment.stripe_product_id, payment.stripe_price_id, payment.stripe_session_id),
+            ("prod_1", "price_1", "cs_1"),
+        )
+
+        self.assertEqual(product_create.call_args.kwargs["name"], self.course.title)
+        self.assertEqual(
+            price_create.call_args.kwargs, {"product": "prod_1", "unit_amount": 1500000, "currency": "rub"}
+        )
+        self.assertEqual(session_create.call_args.kwargs["line_items"], [{"price": "price_1", "quantity": 1}])
+        self.assertEqual(session_create.call_args.kwargs["customer_email"], self.user.email)
+
+    @mock.patch("stripe.Price.create", side_effect=stripe.InvalidRequestError("Invalid currency", param="currency"))
+    @mock.patch("stripe.Product.create", return_value=stripe_object(id="prod_1"))
+    def test_payment_create_stripe_error(self, product_create: mock.Mock, price_create: mock.Mock) -> None:
+        """Ошибка Stripe возвращает 502, платёж не сохраняется."""
+        response = self.client.post(self.url, {"course": self.course.pk})
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("Invalid currency", response.json()["detail"])
+        self.assertFalse(Payment.objects.filter(payment_method=Payment.PaymentMethod.STRIPE).exists())
+
+    @mock.patch("stripe.Product.create")
+    def test_payment_create_without_price(self, product_create: mock.Mock) -> None:
+        """Курс без цены оплатить нельзя, в Stripe запрос не уходит."""
+        self.course.price = Decimal("0")
+        self.course.save()
+        response = self.client.post(self.url, {"course": self.course.pk})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("course", response.json())
+        product_create.assert_not_called()
+
+    def test_payment_create_course_not_found(self) -> None:
+        """Несуществующий курс возвращает ошибку."""
+        response = self.client.post(self.url, {"course": 999})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_payment_create_anonymous(self) -> None:
+        """Аноним не может оплатить курс."""
+        self.client.force_authenticate(None)
+        response = self.client.post(self.url, {"course": self.course.pk})
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def create_stripe_payment(self, user: CustomUser) -> Payment:
+        """Создаёт платёж через Stripe в статусе «Ожидает оплаты»."""
+        payment: Payment = Payment.objects.create(
+            user=user,
+            paid_course=self.course,
+            amount=self.course.price,
+            payment_method=Payment.PaymentMethod.STRIPE,
+            stripe_session_id="cs_1",
+        )
+        return payment
+
+    @mock.patch("stripe.checkout.Session.retrieve")
+    def test_payment_status_sync(self, session_retrieve: mock.Mock) -> None:
+        """Статус сессии из Stripe сохраняется в платеже."""
+        payment = self.create_stripe_payment(self.user)
+        url = reverse("users:payment-status", args=(payment.pk,))
+        cases = (
+            (stripe_object(payment_status="unpaid", status="open"), Payment.Status.PENDING),
+            (stripe_object(payment_status="paid", status="complete"), Payment.Status.PAID),
+            (stripe_object(payment_status="unpaid", status="expired"), Payment.Status.EXPIRED),
+        )
+        for session, expected in cases:
+            with self.subTest(expected=expected):
+                session_retrieve.return_value = session
+                response = self.client.get(url)
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["status"], expected)
+                payment.refresh_from_db()
+                self.assertEqual(payment.status, expected)
+        session_retrieve.assert_called_with("cs_1")
+
+    @mock.patch(
+        "stripe.checkout.Session.retrieve", side_effect=stripe.InvalidRequestError("No such session", param="id")
+    )
+    def test_payment_status_stripe_error(self, session_retrieve: mock.Mock) -> None:
+        """Ошибка Stripe при проверке статуса возвращает 502, статус не меняется."""
+        payment = self.create_stripe_payment(self.user)
+        response = self.client.get(reverse("users:payment-status", args=(payment.pk,)))
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+
+    @mock.patch("stripe.checkout.Session.retrieve")
+    def test_payment_status_other_user(self, session_retrieve: mock.Mock) -> None:
+        """Статус чужого платежа проверить нельзя."""
+        payment = self.create_stripe_payment(self.other)
+        response = self.client.get(reverse("users:payment-status", args=(payment.pk,)))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        session_retrieve.assert_not_called()
+
+    def test_payment_status_not_stripe(self) -> None:
+        """Платёж наличными нельзя проверить через Stripe."""
+        response = self.client.get(reverse("users:payment-status", args=(self.course_payment.pk,)))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", response.json())
+
+    def test_payment_status_not_found(self) -> None:
+        """Несуществующий платёж возвращает 404."""
+        response = self.client.get(reverse("users:payment-status", args=(999,)))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_payment_status_anonymous(self) -> None:
+        """Аноним не может проверить статус."""
+        payment = self.create_stripe_payment(self.user)
+        self.client.force_authenticate(None)
+        response = self.client.get(reverse("users:payment-status", args=(payment.pk,)))
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class ConvertToCentsTestCase(SimpleTestCase):
+    """Перевод суммы в копейки для Stripe."""
+
+    def test_convert_to_cents(self) -> None:
+        """Сумма умножается на 100 без ошибок округления."""
+        self.assertEqual(convert_to_cents(Decimal("15000.00")), 1500000)
+        self.assertEqual(convert_to_cents(Decimal("199.99")), 19999)
+        self.assertEqual(convert_to_cents(Decimal("0.10")), 10)
