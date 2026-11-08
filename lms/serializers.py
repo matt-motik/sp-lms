@@ -3,6 +3,7 @@
 from rest_framework import serializers
 
 from lms.models import Course, Lesson
+from lms.validators import YoutubeLinkValidator
 
 
 class LessonSerializer(serializers.ModelSerializer):
@@ -14,6 +15,7 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = "__all__"
         read_only_fields = ("owner",)
+        validators = [YoutubeLinkValidator(field="video_url"), YoutubeLinkValidator(field="description")]
 
 
 class CourseSerializer(serializers.ModelSerializer):
@@ -28,6 +30,7 @@ class CourseSerializer(serializers.ModelSerializer):
         model = Course
         fields = ("id", "title", "preview", "description", "owner", "lessons_count", "lessons")
         read_only_fields = ("owner",)
+        validators = [YoutubeLinkValidator(field="description")]
 
     def get_lessons_count(self, obj: Course) -> int:
         """Возвращает количество уроков курса."""
