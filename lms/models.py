@@ -24,6 +24,7 @@ class Course(models.Model):
 
         verbose_name = "Курс"
         verbose_name_plural = "Курсы"
+        ordering = ("id",)
 
     def __str__(self) -> str:
         """Возвращает название курса."""
@@ -52,6 +53,7 @@ class Lesson(models.Model):
 
         verbose_name = "Урок"
         verbose_name_plural = "Уроки"
+        ordering = ("id",)
 
     def __str__(self) -> str:
         """Возвращает название урока."""

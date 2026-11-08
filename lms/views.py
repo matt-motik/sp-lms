@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from lms.models import Course, Lesson, Subscription
+from lms.paginators import MaterialsPaginator
 from lms.serializers import CourseSerializer, LessonSerializer, SubscriptionSerializer
 from users.permissions import IsModer, IsOwner, is_moderator
 
@@ -18,6 +19,7 @@ class CourseViewSet(viewsets.ModelViewSet):
     """CRUD курсов на основе ViewSet."""
 
     serializer_class = CourseSerializer
+    pagination_class = MaterialsPaginator
 
     def get_queryset(self) -> QuerySet[Course]:
         """Модератор видит все курсы, остальные пользователи — только свои."""
@@ -58,6 +60,7 @@ class LessonListAPIView(generics.ListAPIView):
     """Список уроков: модератору все, остальным только свои."""
 
     serializer_class = LessonSerializer
+    pagination_class = MaterialsPaginator
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self) -> QuerySet[Lesson]:
