@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "sp-lms",
-    "description": "ДЗ 1: CRUD курсов (ViewSet), уроков (Generic), профиль. ДЗ 2: количество и список уроков в курсе, платежи с фильтрами, история платежей в профиле. Для запросов ДЗ 2 сначала загрузите фикстуры: loaddata courses payments. ДЗ 4: подписка на курс, валидация ссылок на youtube.com, пагинация — папка «ДЗ4», запросы от Ивана: сначала получите токен в папке «ДЗ3 / 1. Регистрация и токены».",
+    "description": "ДЗ 1: CRUD курсов (ViewSet), уроков (Generic), профиль. ДЗ 2: количество и список уроков в курсе, платежи с фильтрами, история платежей в профиле. Для запросов ДЗ 2 сначала загрузите фикстуры: loaddata courses payments. ДЗ 4: подписка на курс, валидация ссылок на youtube.com, пагинация — папка «ДЗ4», запросы от Ивана: сначала получите токен в папке «ДЗ3 / 1. Регистрация и токены». ДЗ 5: документация (Swagger, Redoc) и оплата курса через Stripe — папка «ДЗ5», запросы от Ивана. Оплата создаёт настоящую сессию в тестовом режиме Stripe: нужен STRIPE_API_KEY в .env. Чтобы статус стал paid, откройте payment_url и оплатите картой 4242 4242 4242 4242.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -35,6 +35,10 @@
     },
     {
       "key": "petr_lesson_id",
+      "value": ""
+    },
+    {
+      "key": "stripe_payment_id",
       "value": ""
     }
   ],
@@ -1921,6 +1925,335 @@
                 "method": "GET",
                 "header": [],
                 "url": "{{base_url}}/courses/?page=1",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token_ivan}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ДЗ5: документация и оплата через Stripe",
+      "item": [
+        {
+          "name": "1. Документация",
+          "item": [
+            {
+              "name": "Схема OpenAPI без токена → 200",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"Есть эндпоинт оплаты\", () => pm.expect(pm.response.json().paths).to.have.property(\"/users/payments/create/\"));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{base_url}}/api/schema/?format=json"
+              },
+              "response": []
+            },
+            {
+              "name": "Swagger без токена → 200",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{base_url}}/api/docs/"
+              },
+              "response": []
+            },
+            {
+              "name": "Redoc без токена → 200",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{base_url}}/api/redoc/"
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "2. Оплата курса",
+          "item": [
+            {
+              "name": "Оплата курса 101 → 201",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                      "const payment = pm.response.json();",
+                      "pm.test(\"Ссылка на оплату Stripe\", () => pm.expect(payment.payment_url).to.include(\"https://checkout.stripe.com\"));",
+                      "pm.test(\"Сумма из цены курса\", () => pm.expect(payment.amount).to.eql(\"15000.00\"));",
+                      "pm.test(\"Ожидает оплаты\", () => pm.expect(payment.status).to.eql(\"pending\"));",
+                      "pm.collectionVariables.set(\"stripe_payment_id\", payment.id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{base_url}}/users/payments/create/",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token_ivan}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"course\": 101}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Несуществующий курс → 400",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 400\", () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{base_url}}/users/payments/create/",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token_ivan}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"course\": 999999}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Без токена → 401",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 401\", () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{base_url}}/users/payments/create/",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"course\": 101}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "3. Статус оплаты",
+          "item": [
+            {
+              "name": "Статус своего платежа → 200",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                      "pm.test(\"Статус из Stripe\", () => pm.expect([\"pending\", \"paid\", \"expired\"]).to.include(pm.response.json().status));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{base_url}}/users/payments/{{stripe_payment_id}}/status/",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token_ivan}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Платёж наличными → 400",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 400\", () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{base_url}}/users/payments/102/status/",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token_ivan}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Чужой платёж → 403",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 403\", () => pm.response.to.have.status(403));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{base_url}}/users/payments/104/status/",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token_ivan}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Несуществующий платёж → 404",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Статус 404\", () => pm.response.to.have.status(404));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{base_url}}/users/payments/999999/status/",
                 "auth": {
                   "type": "bearer",
                   "bearer": [
