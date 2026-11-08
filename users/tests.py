@@ -11,7 +11,7 @@ from rest_framework.test import APITestCase
 
 from lms.models import Course, Lesson
 from users.models import CustomUser, Payment
-from users.services import convert_to_cents
+from users.services import convert_to_cents, get_payment_status
 
 
 class UsersTestCase(APITestCase):
@@ -218,9 +218,9 @@ class PaymentTestCase(UsersTestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
-def stripe_object(**fields: str) -> mock.Mock:
-    """Ответ Stripe с нужными полями."""
-    return mock.Mock(**fields)
+def stripe_object(**fields: str) -> stripe.StripeObject:
+    """Ответ Stripe с нужными полями: такой же объект, какой возвращает библиотека stripe."""
+    return stripe.StripeObject.construct_from(fields, "sk_test_fake")
 
 
 @override_settings(STRIPE_API_KEY="sk_test_fake", STRIPE_CURRENCY="rub")
@@ -386,3 +386,13 @@ class ConvertToCentsTestCase(SimpleTestCase):
         self.assertEqual(convert_to_cents(Decimal("15000.00")), 1500000)
         self.assertEqual(convert_to_cents(Decimal("199.99")), 19999)
         self.assertEqual(convert_to_cents(Decimal("0.10")), 10)
+
+
+class PaymentStatusTestCase(SimpleTestCase):
+    """Статус платежа по данным сессии оплаты из Stripe."""
+
+    def test_get_payment_status(self) -> None:
+        """Оплаченная сессия — «Оплачен», истёкшая — «Истёк», остальные — «Ожидает оплаты»."""
+        self.assertEqual(get_payment_status({"payment_status": "paid", "status": "complete"}), Payment.Status.PAID)
+        self.assertEqual(get_payment_status({"payment_status": "unpaid", "status": "expired"}), Payment.Status.EXPIRED)
+        self.assertEqual(get_payment_status({"payment_status": "unpaid", "status": "open"}), Payment.Status.PENDING)

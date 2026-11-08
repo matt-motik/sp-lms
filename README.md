@@ -382,7 +382,7 @@ uv run python readme_gen.py
 ### 📊 Результаты тестов
 
 ```
-Ran 71 tests in 32.937s
+Ran 72 tests in 33.160s
 OK
 ```
 
@@ -413,12 +413,12 @@ users/managers.py         21      9    57%
 users/models.py           45      2    96%
 users/permissions.py      25      0   100%
 users/serializers.py      62      2    97%
-users/services.py         42      0   100%
-users/tests.py           223      0   100%
+users/services.py         45      0   100%
+users/tests.py           228      0   100%
 users/urls.py              7      0   100%
-users/views.py            76      0   100%
+users/views.py            81      0   100%
 ------------------------------------------
-TOTAL                   1048     18    98%
+TOTAL                   1061     18    98%
 ```
 
 > 📄 Отчёт покрытия также сохранён в [`coverage.txt`](coverage.txt)
@@ -540,10 +540,11 @@ uv run pre-commit run --all-files
 | | [📦 StripeServiceError](docs/api/users/services.md#StripeServiceError) | Ошибка платёжного сервиса: Stripe недоступен или отклонил запрос. |
 | | [🔧 handle_stripe_errors](docs/api/users/services.md#handle_stripe_errors) | Подставляет ключ API и превращает ошибки Stripe в ответ API с понятным текстом. |
 | | [🔧 convert_to_cents](docs/api/users/services.md#convert_to_cents) | Переводит сумму в копейки: Stripe принимает цену в минимальных единицах валюты. |
-| | [🔧 create_stripe_product](docs/api/users/services.md#create_stripe_product) | Создаёт продукт в Stripe для курса и возвращает его ID. |
-| | [🔧 create_stripe_price](docs/api/users/services.md#create_stripe_price) | Создаёт цену продукта в Stripe и возвращает её ID. Сумма передаётся в копейках. |
-| | [🔧 create_stripe_session](docs/api/users/services.md#create_stripe_session) | Создаёт сессию оплаты в Stripe и возвращает её ID и ссылку на оплату. |
-| | [🔧 retrieve_payment_status](docs/api/users/services.md#retrieve_payment_status) | Получает сессию оплаты из Stripe и возвращает соответствующий статус платежа. |
+| | [🔧 create_stripe_product](docs/api/users/services.md#create_stripe_product) | Создаёт продукт в Stripe для курса и возвращает ответ Stripe. |
+| | [🔧 create_stripe_price](docs/api/users/services.md#create_stripe_price) | Создаёт цену продукта в Stripe и возвращает ответ Stripe. Сумма передаётся в копейках. |
+| | [🔧 create_stripe_session](docs/api/users/services.md#create_stripe_session) | Создаёт сессию оплаты в Stripe и возвращает ответ Stripe со ссылкой на оплату в поле url. |
+| | [🔧 retrieve_stripe_session](docs/api/users/services.md#retrieve_stripe_session) | Получает сессию оплаты из Stripe и возвращает ответ Stripe. |
+| | [🔧 get_payment_status](docs/api/users/services.md#get_payment_status) | Возвращает статус платежа по данным сессии оплаты из Stripe. |
 | [**`users/views.py`**](docs/api/users/views.md) | | |
 | | [📦 UserRegisterAPIView](docs/api/users/views.md#UserRegisterAPIView) | Регистрация нового пользователя. Доступна без авторизации. |
 | | [📦 UserTokenObtainPairView](docs/api/users/views.md#UserTokenObtainPairView) | Получение пары JWT-токенов. Доступно без авторизации. |

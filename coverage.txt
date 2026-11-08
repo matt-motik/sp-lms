@@ -22,9 +22,9 @@ users/managers.py         21      9    57%
 users/models.py           45      2    96%
 users/permissions.py      25      0   100%
 users/serializers.py      62      2    97%
-users/services.py         42      0   100%
-users/tests.py           223      0   100%
+users/services.py         45      0   100%
+users/tests.py           228      0   100%
 users/urls.py              7      0   100%
-users/views.py            76      0   100%
+users/views.py            81      0   100%
 ------------------------------------------
-TOTAL                   1048     18    98%
+TOTAL                   1061     18    98%

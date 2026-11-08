@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from decimal import Decimal
+from typing import Any
 
 import stripe
 from django.conf import settings
@@ -36,26 +37,28 @@ def convert_to_cents(amount: Decimal) -> int:
     return int((amount * 100).quantize(Decimal("1")))
 
 
-def create_stripe_product(course: Course) -> str:
-    """Создаёт продукт в Stripe для курса и возвращает его ID."""
+def create_stripe_product(course: Course) -> dict[str, Any]:
+    """Создаёт продукт в Stripe для курса и возвращает ответ Stripe."""
     with handle_stripe_errors("создать продукт в Stripe"):
         product = stripe.Product.create(name=course.title, metadata={"course_id": str(course.pk)})
-    return str(product.id)
+    response: dict[str, Any] = product.to_dict()
+    return response
 
 
-def create_stripe_price(product_id: str, amount: Decimal) -> str:
-    """Создаёт цену продукта в Stripe и возвращает её ID. Сумма передаётся в копейках."""
+def create_stripe_price(product_id: str, amount: Decimal) -> dict[str, Any]:
+    """Создаёт цену продукта в Stripe и возвращает ответ Stripe. Сумма передаётся в копейках."""
     with handle_stripe_errors("создать цену в Stripe"):
         price = stripe.Price.create(
             product=product_id,
             unit_amount=convert_to_cents(amount),
             currency=settings.STRIPE_CURRENCY,
         )
-    return str(price.id)
+    response: dict[str, Any] = price.to_dict()
+    return response
 
 
-def create_stripe_session(price_id: str, payment: Payment) -> tuple[str, str]:
-    """Создаёт сессию оплаты в Stripe и возвращает её ID и ссылку на оплату."""
+def create_stripe_session(price_id: str, payment: Payment) -> dict[str, Any]:
+    """Создаёт сессию оплаты в Stripe и возвращает ответ Stripe со ссылкой на оплату в поле url."""
     with handle_stripe_errors("создать сессию оплаты в Stripe"):
         session = stripe.checkout.Session.create(
             mode="payment",
@@ -66,15 +69,22 @@ def create_stripe_session(price_id: str, payment: Payment) -> tuple[str, str]:
             client_reference_id=str(payment.pk),
             metadata={"payment_id": str(payment.pk)},
         )
-    return str(session.id), str(session.url)
+    response: dict[str, Any] = session.to_dict()
+    return response
 
 
-def retrieve_payment_status(session_id: str) -> str:
-    """Получает сессию оплаты из Stripe и возвращает соответствующий статус платежа."""
+def retrieve_stripe_session(session_id: str) -> dict[str, Any]:
+    """Получает сессию оплаты из Stripe и возвращает ответ Stripe."""
     with handle_stripe_errors("получить сессию оплаты из Stripe"):
         session = stripe.checkout.Session.retrieve(session_id)
-    if session.payment_status == "paid":
+    response: dict[str, Any] = session.to_dict()
+    return response
+
+
+def get_payment_status(session: dict[str, Any]) -> str:
+    """Возвращает статус платежа по данным сессии оплаты из Stripe."""
+    if session.get("payment_status") == "paid":
         return str(Payment.Status.PAID)
-    if session.status == "expired":
+    if session.get("status") == "expired":
         return str(Payment.Status.EXPIRED)
     return str(Payment.Status.PENDING)

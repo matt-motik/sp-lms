@@ -44,7 +44,8 @@ from users.services import (
     create_stripe_price,
     create_stripe_product,
     create_stripe_session,
-    retrieve_payment_status,
+    get_payment_status,
+    retrieve_stripe_session,
 )
 
 
@@ -241,9 +242,13 @@ class PaymentCreateAPIView(APIView):
                 amount=course.price,
                 payment_method=Payment.PaymentMethod.STRIPE,
             )
-            payment.stripe_product_id = create_stripe_product(course)
-            payment.stripe_price_id = create_stripe_price(payment.stripe_product_id, payment.amount)
-            payment.stripe_session_id, payment.payment_url = create_stripe_session(payment.stripe_price_id, payment)
+            product = create_stripe_product(course)
+            price = create_stripe_price(product["id"], payment.amount)
+            session = create_stripe_session(price["id"], payment)
+            payment.stripe_product_id = product["id"]
+            payment.stripe_price_id = price["id"]
+            payment.stripe_session_id = session["id"]
+            payment.payment_url = session["url"]
             payment.save()
 
         return Response(PaymentStripeSerializer(payment).data, status=status.HTTP_201_CREATED)
@@ -277,7 +282,8 @@ class PaymentStatusAPIView(generics.RetrieveAPIView):
         if not payment.stripe_session_id:
             raise ValidationError({"detail": "Платёж создан не через Stripe, статус проверить нельзя."})
 
-        payment_status = retrieve_payment_status(payment.stripe_session_id)
+        session = retrieve_stripe_session(payment.stripe_session_id)
+        payment_status = get_payment_status(session)
         if payment.status != payment_status:
             payment.status = payment_status
             payment.save(update_fields=["status"])
