@@ -53,3 +53,4 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         model = Subscription
         fields = ("course",)
+        extra_kwargs = {"course": {"help_text": "ID курса для подписки или отписки."}}
