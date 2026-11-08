@@ -31,6 +31,7 @@ EXCLUDE_DIRS = {
 }
 EXCLUDE_FILES = {"readme_gen.py", "setup.py", ".env", "db.sqlite3"}
 README_FILE = PROJECT_ROOT / "README.md"
+COVERAGE_FILE = PROJECT_ROOT / "coverage.txt"
 DOCS_OUTPUT_DIR = Path("docs/api")
 # ===================================================
 
@@ -61,7 +62,8 @@ def find_python_files() -> list[Path]:
             relative_parts = py_file.relative_to(PROJECT_ROOT).parts
             if any(part in EXCLUDE_DIRS for part in relative_parts):
                 continue
-            if py_file.name in EXCLUDE_FILES:
+            # Тесты не попадают в документацию API: в структуре проекта они видны и так
+            if py_file.name in EXCLUDE_FILES or py_file.name.startswith("test"):
                 continue
             py_files.append(py_file)
 
@@ -233,40 +235,49 @@ def has_tests() -> bool:
     return False
 
 
+def run_command(*args: str) -> subprocess.CompletedProcess[str]:
+    """Запускает команду через uv в корне проекта и возвращает результат."""
+    return subprocess.run(
+        ["uv", "run", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=PROJECT_ROOT,
+        check=False,
+    )
+
+
 def run_tests_and_get_results() -> str:
-    """Запускает pytest с coverage и возвращает форматированный вывод."""
+    """Запускает тесты Django под coverage, сохраняет отчёт в coverage.txt и возвращает форматированный вывод."""
     if not has_tests():
         return "\n*Тесты пока не добавлены.*\n"
 
     print("\n🧪 Запуск тестов с coverage...")
     try:
-        result = subprocess.run(
-            ["uv", "run", "pytest", "--cov", "--cov-report=term", "--cov-report=html"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            cwd=PROJECT_ROOT,
-            check=False,
-        )
+        result = run_command("coverage", "run", "manage.py", "test")
     except FileNotFoundError:
         return "```\n⚠️ uv не найден в PATH\n```\n"
 
+    # Django печатает ход и итог тестов в stderr
     output = result.stdout + result.stderr
-    if "No module named pytest" in output or "Failed to spawn: `pytest`" in output:
-        return "```\n⚠️ Pytest не установлен. Установите: uv add --group dev pytest pytest-cov\n```\n"
+    if "No module named coverage" in output or "Failed to spawn: `coverage`" in output:
+        return "```\n⚠️ Coverage не установлен. Установите: uv add --group dev coverage\n```\n"
 
     lines = output.split("\n")
-    coverage_lines = [line for line in lines if line.startswith("TOTAL")]
-    summary_lines = [line for line in lines if line.startswith("=") and ("passed" in line or "failed" in line)]
+    summary_lines = [line for line in lines if line.startswith("Ran ") or line in ("OK", "NO TESTS RAN")]
+    summary_lines += [line for line in lines if line.startswith("FAILED")]
+
+    report = run_command("coverage", "report").stdout.strip()
+    COVERAGE_FILE.write_text(report + "\n", encoding="utf-8")
+    print(f"✅ Отчёт покрытия сохранён в {COVERAGE_FILE.name}")
 
     parts = ["### 📊 Результаты тестов\n", "```"]
     if result.returncode != 0:
         parts.append("❌ Некоторые тесты не прошли!")
     parts.extend(summary_lines or lines[-10:])
-    if coverage_lines:
-        parts.append(f"📈 Покрытие: {coverage_lines[-1]}")
     parts.append("```\n")
-    parts.append("> 📊 **HTML отчёт покрытия**: [`htmlcov/index.html`](htmlcov/index.html)\n")
+    parts.extend(["### 📈 Покрытие\n", "```text", report, "```\n"])
+    parts.append(f"> 📄 Отчёт покрытия также сохранён в [`{COVERAGE_FILE.name}`]({COVERAGE_FILE.name})\n")
     return "\n".join(parts)
 
 

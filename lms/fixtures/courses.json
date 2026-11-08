@@ -6,6 +6,7 @@
       "title": "Python-разработчик",
       "preview": "",
       "description": "Основы Python: синтаксис, типы данных, функции и ООП.",
+      "price": "15000.00",
       "owner": 101
     }
   },
@@ -16,6 +17,7 @@
       "title": "Django REST framework",
       "preview": "",
       "description": "Создание API на Django: сериализаторы, ViewSet, фильтрация.",
+      "price": "25000.00",
       "owner": 101
     }
   },

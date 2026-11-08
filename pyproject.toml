@@ -8,12 +8,15 @@ dependencies = [
     "django-filter>=26.2",
     "djangorestframework>=3.18.3",
     "djangorestframework-simplejwt>=5.5.1",
+    "drf-spectacular>=0.30.0",
     "pillow>=13.0.0",
     "psycopg2-binary>=2.9.13",
+    "stripe>=16.1.0",
 ]
 
 [dependency-groups]
 dev = [
+    "coverage>=7.17.2",
     "pre-commit>=4.7.0",
 ]
 lint = [
@@ -65,3 +68,14 @@ exclude = ["^.venv/", "^venv/", "__pycache__", "tests/", "^.*/migrations/.*$"]
 [[tool.mypy.overrides]]
 module = "*.migrations.*"
 ignore_errors = true
+
+[tool.coverage.run]
+source = ["."]
+omit = [
+    ".venv/*",
+    "*/migrations/*",
+    "manage.py",
+    "readme_gen.py",
+    "config/asgi.py",
+    "config/wsgi.py",
+]
