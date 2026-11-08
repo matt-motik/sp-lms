@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "django_filters",
     "rest_framework_simplejwt",
+    "drf_spectacular",
     "users",
     "lms",
 ]
@@ -167,6 +168,18 @@ REST_FRAMEWORK = {
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.OrderingFilter",
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# Документация API
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "SP LMS API",
+    "DESCRIPTION": "API LMS-системы: курсы, уроки, подписки на курсы, пользователи и платежи. "
+    "Для запросов с авторизацией получите токен в /users/token/ и передайте его через кнопку Authorize.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
 }
 
 # JWT
