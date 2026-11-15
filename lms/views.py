@@ -22,6 +22,7 @@ from config.schema import (
 from lms.models import Course, Lesson, Subscription
 from lms.paginators import MaterialsPaginator
 from lms.serializers import CourseSerializer, LessonSerializer, SubscriptionSerializer
+from lms.tasks import send_course_update
 from users.permissions import IsModer, IsOwner, is_moderator
 
 COURSE_ID = id_parameter("ID курса.")
@@ -50,13 +51,13 @@ LESSON_ID = id_parameter("ID урока.")
     ),
     update=extend_schema(
         summary="Изменение курса",
-        description="Доступно владельцу и модератору.",
+        description="Доступно владельцу и модератору. Подписчикам курса отправляется письмо об обновлении.",
         parameters=[COURSE_ID],
         responses={200: CourseSerializer, 400: VALIDATION_ERROR, 401: UNAUTHORIZED, 403: FORBIDDEN, 404: NOT_FOUND},
     ),
     partial_update=extend_schema(
         summary="Частичное изменение курса",
-        description="Доступно владельцу и модератору.",
+        description="Доступно владельцу и модератору. Подписчикам курса отправляется письмо об обновлении.",
         parameters=[COURSE_ID],
         responses={200: CourseSerializer, 400: VALIDATION_ERROR, 401: UNAUTHORIZED, 403: FORBIDDEN, 404: NOT_FOUND},
     ),
@@ -98,6 +99,11 @@ class CourseViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer: Any) -> None:
         """Привязывает создаваемый курс к текущему пользователю."""
         serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer: Any) -> None:
+        """Сохраняет курс и отправляет подписчикам письмо об обновлении."""
+        course = serializer.save()
+        send_course_update.delay(course.pk)
 
 
 @extend_schema(
