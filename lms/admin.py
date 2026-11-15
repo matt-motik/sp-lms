@@ -9,7 +9,7 @@ from lms.models import Course, Lesson, Subscription
 class CourseAdmin(admin.ModelAdmin):
     """Настройки админки для курсов."""
 
-    list_display = ("id", "title")
+    list_display = ("id", "title", "price")
     search_fields = ("title",)
 
 

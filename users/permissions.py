@@ -46,3 +46,13 @@ class IsProfileOwner(BasePermission):
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         """Проверяет, что профиль принадлежит текущему пользователю."""
         return bool(obj == request.user)
+
+
+class IsPaymentOwner(BasePermission):
+    """Пользователь работает со своим платежом."""
+
+    message = "Проверить статус можно только своего платежа."
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        """Проверяет, что платёж принадлежит текущему пользователю."""
+        return bool(obj.user == request.user)

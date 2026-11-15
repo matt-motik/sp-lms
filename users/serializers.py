@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError
 from rest_framework import serializers
 
+from lms.models import Course
 from users.models import CustomUser, Payment
 
 
@@ -20,12 +21,44 @@ class PaymentSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class PaymentCreateSerializer(serializers.Serializer):
+    """Сериализатор запроса на оплату курса: принимает ID курса."""
+
+    course = serializers.PrimaryKeyRelatedField(queryset=Course.objects.all(), help_text="ID курса для оплаты.")
+
+    def validate_course(self, value: Course) -> Course:
+        """Проверяет, что у курса указана цена."""
+        if value.price <= 0:
+            raise serializers.ValidationError("У курса не указана цена, оплатить его нельзя.")
+        return value
+
+
+class PaymentStripeSerializer(serializers.ModelSerializer):
+    """Сериализатор платежа через Stripe: данные платежа и ссылка на оплату."""
+
+    class Meta:
+        """Мета-параметры сериализатора платежа через Stripe."""
+
+        model = Payment
+        fields = (
+            "id",
+            "payment_date",
+            "paid_course",
+            "amount",
+            "payment_method",
+            "status",
+            "stripe_session_id",
+            "payment_url",
+        )
+
+
 class PaymentHistorySerializer(PaymentSerializer):
-    """Сериализатор платежа для истории в профиле: с названиями курса, урока и способа оплаты."""
+    """Сериализатор платежа для истории в профиле: с названиями курса, урока, способа и статуса оплаты."""
 
     paid_course_title = serializers.CharField(source="paid_course.title", read_only=True, default=None)
     paid_lesson_title = serializers.CharField(source="paid_lesson.title", read_only=True, default=None)
     payment_method_display = serializers.CharField(source="get_payment_method_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     class Meta:
         """Мета-параметры сериализатора истории платежей."""
@@ -41,6 +74,8 @@ class PaymentHistorySerializer(PaymentSerializer):
             "amount",
             "payment_method",
             "payment_method_display",
+            "status",
+            "status_display",
         )
 
 

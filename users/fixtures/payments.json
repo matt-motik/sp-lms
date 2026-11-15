@@ -52,7 +52,8 @@
       "paid_course": 101,
       "paid_lesson": null,
       "amount": "15000.00",
-      "payment_method": "transfer"
+      "payment_method": "transfer",
+      "status": "paid"
     }
   },
   {
@@ -64,7 +65,8 @@
       "paid_course": null,
       "paid_lesson": 104,
       "amount": "2000.00",
-      "payment_method": "cash"
+      "payment_method": "cash",
+      "status": "paid"
     }
   },
   {
@@ -76,7 +78,8 @@
       "paid_course": 102,
       "paid_lesson": null,
       "amount": "20000.00",
-      "payment_method": "transfer"
+      "payment_method": "transfer",
+      "status": "paid"
     }
   },
   {
@@ -88,7 +91,8 @@
       "paid_course": 101,
       "paid_lesson": null,
       "amount": "15000.00",
-      "payment_method": "cash"
+      "payment_method": "cash",
+      "status": "paid"
     }
   },
   {
@@ -100,7 +104,8 @@
       "paid_course": null,
       "paid_lesson": 105,
       "amount": "2500.00",
-      "payment_method": "transfer"
+      "payment_method": "transfer",
+      "status": "paid"
     }
   },
   {
@@ -112,7 +117,8 @@
       "paid_course": null,
       "paid_lesson": 102,
       "amount": "1500.00",
-      "payment_method": "cash"
+      "payment_method": "cash",
+      "status": "paid"
     }
   }
 ]

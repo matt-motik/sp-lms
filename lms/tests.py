@@ -243,6 +243,22 @@ class CourseTestCase(LmsTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_course_price(self) -> None:
+        """Цена курса сохраняется и отдаётся в ответе."""
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(reverse("lms:courses-list"), {"title": "Django", "price": "25000.00"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["price"], "25000.00")
+
+    def test_course_negative_price(self) -> None:
+        """Отрицательная цена курса не проходит валидацию."""
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(reverse("lms:courses-list"), {"title": "Django", "price": "-1"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("price", response.json())
+
     def test_course_list(self) -> None:
         """Владелец видит свои курсы постранично, чужой пользователь — нет, модератор — все."""
         self.client.force_authenticate(self.owner)

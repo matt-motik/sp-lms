@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "django_filters",
     "rest_framework_simplejwt",
+    "drf_spectacular",
     "users",
     "lms",
 ]
@@ -167,6 +168,18 @@ REST_FRAMEWORK = {
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.OrderingFilter",
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# Документация API
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "SP LMS API",
+    "DESCRIPTION": "API LMS-системы: курсы, уроки, подписки на курсы, пользователи и платежи. "
+    "Для запросов с авторизацией получите токен в /users/token/ и передайте его через кнопку Authorize.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
 }
 
 # JWT
@@ -175,3 +188,10 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
+
+# Stripe
+
+STRIPE_API_KEY = env("STRIPE_API_KEY", default="")
+STRIPE_CURRENCY = env("STRIPE_CURRENCY", default="rub")
+STRIPE_SUCCESS_URL = env("STRIPE_SUCCESS_URL", default="http://127.0.0.1:8000/payments/success/")
+STRIPE_CANCEL_URL = env("STRIPE_CANCEL_URL", default="http://127.0.0.1:8000/payments/cancel/")

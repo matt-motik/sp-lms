@@ -17,6 +17,6 @@ class CustomUserAdmin(admin.ModelAdmin):
 class PaymentAdmin(admin.ModelAdmin):
     """Настройки админки для платежей."""
 
-    list_display = ("id", "user", "payment_date", "paid_course", "paid_lesson", "amount", "payment_method")
-    list_filter = ("payment_method", "paid_course")
+    list_display = ("id", "user", "payment_date", "paid_course", "paid_lesson", "amount", "payment_method", "status")
+    list_filter = ("payment_method", "status", "paid_course")
     search_fields = ("user__email",)
