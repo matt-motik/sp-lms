@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from lms.models import Course, Lesson
+from lms.models import Course, Lesson, Subscription
 
 
 @admin.register(Course)
@@ -20,3 +20,11 @@ class LessonAdmin(admin.ModelAdmin):
     list_display = ("id", "title", "course")
     list_filter = ("course",)
     search_fields = ("title",)
+
+
+@admin.register(Subscription)
+class SubscriptionAdmin(admin.ModelAdmin):
+    """Настройки админки для подписок."""
+
+    list_display = ("id", "user", "course", "created_at")
+    list_filter = ("course",)
