@@ -1,11 +1,15 @@
-"""Тесты приложения lms: CRUD уроков и курсов, подписки, валидация ссылок, пагинация."""
+"""Тесты приложения lms: CRUD уроков и курсов, подписки, рассылка, валидация ссылок, пагинация."""
+
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import Group
+from django.core import mail
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from lms.models import Course, Lesson, Subscription
+from lms.tasks import send_course_update
 from lms.validators import is_youtube_link
 from users.models import CustomUser
 from users.permissions import MODERATORS_GROUP
@@ -17,7 +21,11 @@ class LmsTestCase(APITestCase):
     """Общие тестовые данные: владелец, чужой пользователь, модератор, курс и урок."""
 
     def setUp(self) -> None:
-        """Создаёт пользователей, курс и урок."""
+        """Создаёт пользователей, курс и урок. Задача рассылки подменяется, чтобы не ставить её в очередь Redis."""
+        patcher = patch("lms.views.send_course_update")
+        self.send_course_update: MagicMock = patcher.start()
+        self.addCleanup(patcher.stop)
+
         self.owner = CustomUser.objects.create_user(email="owner@test.ru", password="pass12345")
         self.other = CustomUser.objects.create_user(email="other@test.ru", password="pass12345")
         self.moder = CustomUser.objects.create_user(email="moder@test.ru", password="pass12345")
@@ -393,6 +401,58 @@ class SubscriptionTestCase(LmsTestCase):
         Subscription.objects.filter(user=self.owner).delete()
         Subscription.objects.create(user=self.other, course=self.course)
         self.assertFalse(self.client.get(url).json()["is_subscribed"])
+
+
+class CourseUpdateMailingTestCase(LmsTestCase):
+    """Рассылка подписчикам при обновлении курса."""
+
+    def setUp(self) -> None:
+        """Добавляет адрес курса и второй курс."""
+        super().setUp()
+        self.url = reverse("lms:courses-detail", args=(self.course.pk,))
+        self.other_course = Course.objects.create(title="Django", owner=self.owner)
+
+    def test_course_update_calls_task(self) -> None:
+        """После успешного обновления курса задача рассылки ставится в очередь с ID курса."""
+        self.client.force_authenticate(self.owner)
+        response = self.client.patch(self.url, {"title": "Python 3"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.send_course_update.delay.assert_called_once_with(self.course.pk)
+
+    def test_course_update_invalid_no_task(self) -> None:
+        """Если курс не прошёл валидацию, рассылки нет."""
+        self.client.force_authenticate(self.owner)
+        response = self.client.patch(self.url, {"description": "Подробнее на www.stepik.org/course"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.send_course_update.delay.assert_not_called()
+
+    def test_course_update_forbidden_no_task(self) -> None:
+        """Если обновить курс нельзя, рассылки нет."""
+        self.client.force_authenticate(self.other)
+        response = self.client.patch(self.url, {"title": "Чужой"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.send_course_update.delay.assert_not_called()
+
+    def test_send_course_update(self) -> None:
+        """Каждый подписчик курса получает отдельное письмо, подписчики другого курса — нет."""
+        Subscription.objects.create(user=self.other, course=self.course)
+        Subscription.objects.create(user=self.moder, course=self.course)
+        Subscription.objects.create(user=self.owner, course=self.other_course)
+
+        send_course_update(self.course.pk)
+
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertCountEqual([message.to for message in mail.outbox], [[self.other.email], [self.moder.email]])
+        self.assertIn(self.course.title, mail.outbox[0].subject)
+
+    def test_send_course_update_no_subscribers(self) -> None:
+        """Если на курс никто не подписан, писем нет."""
+        send_course_update(self.course.pk)
+
+        self.assertEqual(len(mail.outbox), 0)
 
 
 class YoutubeLinkTestCase(APITestCase):
