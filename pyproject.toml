@@ -3,7 +3,9 @@ name = "sp-lms"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    "celery>=5.7.0",
     "django>=6.1.2",
+    "django-celery-beat>=2.9.0",
     "django-environ>=0.14.0",
     "django-filter>=26.2",
     "djangorestframework>=3.18.3",
@@ -11,6 +13,7 @@ dependencies = [
     "drf-spectacular>=0.30.0",
     "pillow>=13.0.0",
     "psycopg2-binary>=2.9.13",
+    "redis>=8.1.0",
     "stripe>=16.1.0",
 ]
 
@@ -23,6 +26,10 @@ lint = [
     "mypy>=2.4.0",
     "ruff>=0.17.2",
 ]
+
+[tool.uv]
+# django-celery-beat 2.9.0 ограничивает Django<6.1
+override-dependencies = ["django>=6.1.2"]
 
 [tool.ruff]
 target-version = "py314"
