@@ -1,17 +1,21 @@
-"""Тесты приложения users: регистрация, JWT, профили, платежи и оплата через Stripe."""
+"""Тесты приложения users: регистрация, JWT, профили, платежи, оплата через Stripe, блокировка неактивных."""
 
+from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 
 import stripe
-from django.test import SimpleTestCase, override_settings
+from django.conf import settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from lms.models import Course, Lesson
 from users.models import CustomUser, Payment
 from users.services import convert_to_cents, get_payment_status
+from users.tasks import INACTIVE_PERIOD, block_inactive_users
 
 
 class UsersTestCase(APITestCase):
@@ -84,6 +88,18 @@ class TokenTestCase(UsersTestCase):
         response = self.client.post(reverse("users:token-refresh"), {"refresh": response.json()["refresh"]})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.json())
+
+    def test_token_updates_last_login(self) -> None:
+        """При получении токена у пользователя обновляется дата последнего входа."""
+        self.assertIsNone(self.user.last_login)
+
+        response = self.client.post(
+            reverse("users:token-obtain-pair"), {"email": "user@test.ru", "password": "pass12345"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.last_login)
 
     def test_token_wrong_password(self) -> None:
         """С неверным паролем токен не выдаётся."""
@@ -396,3 +412,47 @@ class PaymentStatusTestCase(SimpleTestCase):
         self.assertEqual(get_payment_status({"payment_status": "paid", "status": "complete"}), Payment.Status.PAID)
         self.assertEqual(get_payment_status({"payment_status": "unpaid", "status": "expired"}), Payment.Status.EXPIRED)
         self.assertEqual(get_payment_status({"payment_status": "unpaid", "status": "open"}), Payment.Status.PENDING)
+
+
+class BlockInactiveUsersTestCase(TestCase):
+    """Периодическая блокировка пользователей, которые не заходили больше месяца."""
+
+    def create_user(self, email: str, days_ago: int | None, **extra_fields: bool) -> CustomUser:
+        """Создаёт пользователя, который последний раз заходил days_ago дней назад (None — ни разу)."""
+        last_login = None if days_ago is None else timezone.now() - timedelta(days=days_ago)
+        return CustomUser.objects.create_user(email=email, password="pass12345", last_login=last_login, **extra_fields)
+
+    def test_block_inactive_users(self) -> None:
+        """Блокируются только обычные пользователи, которые не заходили дольше месяца."""
+        inactive = self.create_user("inactive@test.ru", days_ago=31)
+        active = self.create_user("active@test.ru", days_ago=29)
+        never_logged_in = self.create_user("never@test.ru", days_ago=None)
+        staff = self.create_user("staff@test.ru", days_ago=60, is_staff=True)
+        superuser = self.create_user("admin@test.ru", days_ago=60, is_staff=True, is_superuser=True)
+
+        self.assertEqual(block_inactive_users(), 1)
+
+        for user in (inactive, active, never_logged_in, staff, superuser):
+            user.refresh_from_db()
+        self.assertFalse(inactive.is_active)
+        self.assertTrue(active.is_active)
+        self.assertTrue(never_logged_in.is_active)
+        self.assertTrue(staff.is_active)
+        self.assertTrue(superuser.is_active)
+
+    def test_block_inactive_users_already_blocked(self) -> None:
+        """Уже заблокированные пользователи повторно не учитываются."""
+        self.create_user("blocked@test.ru", days_ago=60, is_active=False)
+
+        self.assertEqual(block_inactive_users(), 0)
+
+    def test_inactive_period(self) -> None:
+        """Срок неактивности — месяц (30 дней)."""
+        self.assertEqual(INACTIVE_PERIOD, timedelta(days=30))
+
+    def test_beat_schedule(self) -> None:
+        """Задача добавлена в расписание celery-beat, таймзона Celery совпадает с таймзоной проекта."""
+        entry = settings.CELERY_BEAT_SCHEDULE["block-inactive-users"]
+
+        self.assertEqual(entry["task"], "users.tasks.block_inactive_users")
+        self.assertEqual(settings.CELERY_TIMEZONE, settings.TIME_ZONE)

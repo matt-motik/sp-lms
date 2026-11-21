@@ -28,6 +28,7 @@ class Course(models.Model):
         related_name="courses",
         verbose_name="Владелец",
     )
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
 
     class Meta:
         """Мета-параметры модели Course."""
@@ -57,6 +58,7 @@ class Lesson(models.Model):
         related_name="lessons",
         verbose_name="Владелец",
     )
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
 
     class Meta:
         """Мета-параметры модели Lesson."""

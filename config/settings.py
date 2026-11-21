@@ -14,11 +14,15 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-env = environ.Env(DEBUG=(bool, False))
+env = environ.Env(
+    DEBUG=(bool, False),
+    EMAIL_USE_CONSOLE=(bool, True),
+)
 environ.Env.read_env(BASE_DIR / ".env")
 
 
@@ -47,6 +51,7 @@ INSTALLED_APPS = [
     "django_filters",
     "rest_framework_simplejwt",
     "drf_spectacular",
+    "django_celery_beat",
     "users",
     "lms",
 ]
@@ -120,7 +125,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = "ru-ru"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Europe/Moscow"
 
 USE_I18N = True
 
@@ -142,11 +147,24 @@ MEDIA_ROOT = BASE_DIR / "media"
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    "default": {
-        "BACKEND": "django.core.mail.backends.console.EmailBackend",
-    },
-}
+if env("EMAIL_USE_CONSOLE"):
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+else:
+    MAILERS = {
+        "default": {
+            "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+            "OPTIONS": {
+                "host": "smtp.yandex.ru",
+                "port": 465,
+                "use_tls": False,
+                "use_ssl": True,
+                "username": env("EMAIL_HOST_USER"),
+                "password": env("EMAIL_HOST_PASSWORD"),
+            },
+        },
+    }
+
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@example.com")
 
 
 # Custom user model
@@ -187,6 +205,8 @@ SPECTACULAR_SETTINGS = {
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    # Обновляет last_login при получении токена: по нему блокируются неактивные пользователи
+    "UPDATE_LAST_LOGIN": True,
 }
 
 # Stripe
@@ -195,3 +215,19 @@ STRIPE_API_KEY = env("STRIPE_API_KEY", default="")
 STRIPE_CURRENCY = env("STRIPE_CURRENCY", default="rub")
 STRIPE_SUCCESS_URL = env("STRIPE_SUCCESS_URL", default="http://127.0.0.1:8000/payments/success/")
 STRIPE_CANCEL_URL = env("STRIPE_CANCEL_URL", default="http://127.0.0.1:8000/payments/cancel/")
+
+# Celery
+
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
+CELERY_BEAT_SCHEDULE = {
+    "block-inactive-users": {
+        "task": "users.tasks.block_inactive_users",
+        "schedule": crontab(hour=3, minute=0),
+    },
+}

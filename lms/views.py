@@ -22,6 +22,7 @@ from config.schema import (
 from lms.models import Course, Lesson, Subscription
 from lms.paginators import MaterialsPaginator
 from lms.serializers import CourseSerializer, LessonSerializer, SubscriptionSerializer
+from lms.services import notify_subscribers
 from users.permissions import IsModer, IsOwner, is_moderator
 
 COURSE_ID = id_parameter("ID курса.")
@@ -50,13 +51,15 @@ LESSON_ID = id_parameter("ID урока.")
     ),
     update=extend_schema(
         summary="Изменение курса",
-        description="Доступно владельцу и модератору.",
+        description="Доступно владельцу и модератору. "
+        "Если курс не обновлялся более 4 часов, подписчикам отправляется письмо об обновлении.",
         parameters=[COURSE_ID],
         responses={200: CourseSerializer, 400: VALIDATION_ERROR, 401: UNAUTHORIZED, 403: FORBIDDEN, 404: NOT_FOUND},
     ),
     partial_update=extend_schema(
         summary="Частичное изменение курса",
-        description="Доступно владельцу и модератору.",
+        description="Доступно владельцу и модератору. "
+        "Если курс не обновлялся более 4 часов, подписчикам отправляется письмо об обновлении.",
         parameters=[COURSE_ID],
         responses={200: CourseSerializer, 400: VALIDATION_ERROR, 401: UNAUTHORIZED, 403: FORBIDDEN, 404: NOT_FOUND},
     ),
@@ -98,6 +101,13 @@ class CourseViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer: Any) -> None:
         """Привязывает создаваемый курс к текущему пользователю."""
         serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer: Any) -> None:
+        """Сохраняет курс и отправляет подписчикам письмо об обновлении."""
+        # auto_now перезапишет updated_at при сохранении, поэтому дату прошлого обновления берём заранее
+        last_updated_at = serializer.instance.updated_at
+        course = serializer.save()
+        notify_subscribers(course, last_updated_at)
 
 
 @extend_schema(
@@ -162,7 +172,8 @@ class LessonRetrieveAPIView(generics.RetrieveAPIView):
 )
 @extend_schema(
     tags=["Уроки"],
-    description="Доступно владельцу и модератору. В video_url и описании допускаются только ссылки на youtube.com.",
+    description="Доступно владельцу и модератору. В video_url и описании допускаются только ссылки на youtube.com. "
+    "Если курс урока не обновлялся более 4 часов, подписчикам отправляется письмо об обновлении.",
     parameters=[LESSON_ID],
     responses={200: LessonSerializer, 400: VALIDATION_ERROR, 401: UNAUTHORIZED, 403: FORBIDDEN, 404: NOT_FOUND},
 )
@@ -172,6 +183,14 @@ class LessonUpdateAPIView(generics.UpdateAPIView):
     queryset = Lesson.objects.all()
     serializer_class = LessonSerializer
     permission_classes = [IsAuthenticated, IsModer | IsOwner]  # type: ignore[operator]
+
+    def perform_update(self, serializer: Any) -> None:
+        """Сохраняет урок, отмечает курс обновлённым и отправляет подписчикам письмо об обновлении."""
+        lesson = serializer.save()
+        course = lesson.course
+        last_updated_at = course.updated_at
+        course.save(update_fields=["updated_at"])
+        notify_subscribers(course, last_updated_at)
 
 
 @extend_schema(

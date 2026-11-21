@@ -1,11 +1,18 @@
-"""Тесты приложения lms: CRUD уроков и курсов, подписки, валидация ссылок, пагинация."""
+"""Тесты приложения lms: CRUD уроков и курсов, подписки, рассылка, валидация ссылок, пагинация."""
+
+from datetime import timedelta
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import Group
+from django.core import mail
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from lms.models import Course, Lesson, Subscription
+from lms.services import is_notify_needed
+from lms.tasks import send_course_update
 from lms.validators import is_youtube_link
 from users.models import CustomUser
 from users.permissions import MODERATORS_GROUP
@@ -17,7 +24,11 @@ class LmsTestCase(APITestCase):
     """Общие тестовые данные: владелец, чужой пользователь, модератор, курс и урок."""
 
     def setUp(self) -> None:
-        """Создаёт пользователей, курс и урок."""
+        """Создаёт пользователей, курс и урок. Задача рассылки подменяется, чтобы не ставить её в очередь Redis."""
+        patcher = patch("lms.services.send_course_update")
+        self.send_course_update: MagicMock = patcher.start()
+        self.addCleanup(patcher.stop)
+
         self.owner = CustomUser.objects.create_user(email="owner@test.ru", password="pass12345")
         self.other = CustomUser.objects.create_user(email="other@test.ru", password="pass12345")
         self.moder = CustomUser.objects.create_user(email="moder@test.ru", password="pass12345")
@@ -393,6 +404,119 @@ class SubscriptionTestCase(LmsTestCase):
         Subscription.objects.filter(user=self.owner).delete()
         Subscription.objects.create(user=self.other, course=self.course)
         self.assertFalse(self.client.get(url).json()["is_subscribed"])
+
+
+class CourseUpdateMailingTestCase(LmsTestCase):
+    """Рассылка подписчикам при обновлении курса."""
+
+    def setUp(self) -> None:
+        """Добавляет адреса курса и урока, второй курс. Курс считается обновлённым 5 часов назад."""
+        super().setUp()
+        self.url = reverse("lms:courses-detail", args=(self.course.pk,))
+        self.lesson_url = reverse("lms:lesson-update", args=(self.lesson.pk,))
+        self.other_course = Course.objects.create(title="Django", owner=self.owner)
+        self.set_course_updated_at(hours=5)
+
+    def set_course_updated_at(self, hours: int) -> None:
+        """Сдвигает дату обновления курса на hours часов назад. update() обходит auto_now."""
+        Course.objects.filter(pk=self.course.pk).update(updated_at=timezone.now() - timedelta(hours=hours))
+        self.course.refresh_from_db()
+
+    def test_course_update_calls_task(self) -> None:
+        """Курс не обновлялся более 4 часов: после обновления задача рассылки ставится в очередь с ID курса."""
+        self.client.force_authenticate(self.owner)
+        response = self.client.patch(self.url, {"title": "Python 3"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.send_course_update.delay.assert_called_once_with(self.course.pk)
+
+    def test_course_update_recent_no_task(self) -> None:
+        """Курс обновлялся меньше 4 часов назад: рассылки нет, дата обновления курса меняется."""
+        self.set_course_updated_at(hours=1)
+        last_updated_at = self.course.updated_at
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.patch(self.url, {"title": "Python 3"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.send_course_update.delay.assert_not_called()
+        self.course.refresh_from_db()
+        self.assertGreater(self.course.updated_at, last_updated_at)
+
+    def test_lesson_update_calls_task(self) -> None:
+        """Курс урока не обновлялся более 4 часов: рассылка по курсу, курс отмечается обновлённым."""
+        last_updated_at = self.course.updated_at
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.patch(self.lesson_url, {"title": "Типы данных"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.send_course_update.delay.assert_called_once_with(self.course.pk)
+        self.course.refresh_from_db()
+        self.assertGreater(self.course.updated_at, last_updated_at)
+
+    def test_lesson_update_recent_no_task(self) -> None:
+        """Курс урока обновлялся меньше 4 часов назад: рассылки нет."""
+        self.set_course_updated_at(hours=1)
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.patch(self.lesson_url, {"title": "Типы данных"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.send_course_update.delay.assert_not_called()
+
+    def test_lesson_update_invalid_no_task(self) -> None:
+        """Если урок не прошёл валидацию, рассылки нет и курс не отмечается обновлённым."""
+        last_updated_at = self.course.updated_at
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.patch(self.lesson_url, {"video_url": "https://skillbox.ru/video/1"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.send_course_update.delay.assert_not_called()
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.updated_at, last_updated_at)
+
+    def test_is_notify_needed(self) -> None:
+        """Письмо нужно, только если с прошлого обновления прошло больше 4 часов."""
+        now = timezone.now()
+
+        self.assertTrue(is_notify_needed(now - timedelta(hours=4, minutes=1)))
+        self.assertFalse(is_notify_needed(now - timedelta(hours=3, minutes=59)))
+
+    def test_course_update_invalid_no_task(self) -> None:
+        """Если курс не прошёл валидацию, рассылки нет."""
+        self.client.force_authenticate(self.owner)
+        response = self.client.patch(self.url, {"description": "Подробнее на www.stepik.org/course"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.send_course_update.delay.assert_not_called()
+
+    def test_course_update_forbidden_no_task(self) -> None:
+        """Если обновить курс нельзя, рассылки нет."""
+        self.client.force_authenticate(self.other)
+        response = self.client.patch(self.url, {"title": "Чужой"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.send_course_update.delay.assert_not_called()
+
+    def test_send_course_update(self) -> None:
+        """Каждый подписчик курса получает отдельное письмо, подписчики другого курса — нет."""
+        Subscription.objects.create(user=self.other, course=self.course)
+        Subscription.objects.create(user=self.moder, course=self.course)
+        Subscription.objects.create(user=self.owner, course=self.other_course)
+
+        send_course_update(self.course.pk)
+
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertCountEqual([message.to for message in mail.outbox], [[self.other.email], [self.moder.email]])
+        self.assertIn(self.course.title, mail.outbox[0].subject)
+
+    def test_send_course_update_no_subscribers(self) -> None:
+        """Если на курс никто не подписан, писем нет."""
+        send_course_update(self.course.pk)
+
+        self.assertEqual(len(mail.outbox), 0)
 
 
 class YoutubeLinkTestCase(APITestCase):

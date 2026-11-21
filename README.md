@@ -33,6 +33,10 @@
 - **Документация API** (`drf-spectacular`): Swagger и Redoc, все эндпоинты описаны вручную с параметрами, ответами и ошибками
 - **Цена курса** и **оплата курса через Stripe**: продукт, цена и сессия оплаты, ссылка на оплату сохраняется в платеже (`users/services.py`)
 - **Проверка статуса оплаты** в Stripe с сохранением статуса в платеже (доп. задание)
+- **Celery и Redis**: отложенные задачи, настройки брокера вынесены в `.env`
+- **Рассылка подписчикам** об обновлении курса отложенной задачей Celery (`lms/tasks.py`)
+- **Не чаще раза в 4 часа**: письмо уходит, только если курс не обновлялся более 4 часов, обновление урока тоже обновляет курс (доп. задание)
+- **Блокировка неактивных пользователей**: периодическая задача celery-beat блокирует тех, кто не заходил больше месяца (`users/tasks.py`)
 - **Админ-панель** для курсов, уроков, подписок, пользователей и платежей
 
 ## 📋 Содержание
@@ -60,6 +64,8 @@
 | **Авторизация** | Simple JWT |
 | **Документация API** | drf-spectacular (OpenAPI 3, Swagger, Redoc) |
 | **Платежи** | Stripe |
+| **Очередь задач** | Celery, django-celery-beat |
+| **Брокер** | Redis |
 | **База данных** | PostgreSQL |
 | **Изображения** | Pillow |
 | **Управление зависимостями** | uv |
@@ -76,6 +82,16 @@
 git clone https://github.com/matt-motik/sp-lms.git
 cd sp-lms
 uv sync --all-groups
+```
+
+Установите и запустите Redis (брокер для Celery):
+
+```bash
+# Arch, Manjaro
+sudo pacman -S redis && sudo systemctl start redis
+
+# Ubuntu, Debian
+sudo apt install redis-server
 ```
 
 Создайте базу данных PostgreSQL:
@@ -131,6 +147,12 @@ cp .env.example .env
 | **STRIPE_CURRENCY** | Валюта оплаты | rub |
 | **STRIPE_SUCCESS_URL** | Куда Stripe перенаправит после оплаты | http://127.0.0.1:8000/payments/success/ |
 | **STRIPE_CANCEL_URL** | Куда Stripe перенаправит при отмене оплаты | http://127.0.0.1:8000/payments/cancel/ |
+| **CELERY_BROKER_URL** | Адрес брокера Redis для Celery | redis://localhost:6379/0 |
+| **CELERY_RESULT_BACKEND** | Адрес Redis для хранения результатов задач | redis://localhost:6379/0 |
+| **EMAIL_USE_CONSOLE** | `True` — письма выводятся в консоль worker, `False` — отправка через SMTP Яндекса | True |
+| **EMAIL_HOST_USER** | Логин почты Яндекса | - |
+| **EMAIL_HOST_PASSWORD** | Пароль приложения почты Яндекса | - |
+| **DEFAULT_FROM_EMAIL** | Адрес отправителя писем | noreply@example.com |
 
 <div id="использование"></div>
 
@@ -143,6 +165,13 @@ uv run python manage.py runserver
 ```
 
 API доступно по адресу http://127.0.0.1:8000/
+
+Для отложенных и периодических задач в отдельных терминалах запустите worker и beat:
+
+```bash
+uv run celery -A config worker -l INFO
+uv run celery -A config beat -l INFO
+```
 
 ### 📘 Документация API
 
@@ -215,6 +244,19 @@ Authorization: Bearer <access>
 
 Курс без цены оплатить нельзя (`400`). Если Stripe недоступен или отклонил запрос — `502` с текстом ошибки, платёж не сохраняется.
 
+### ⏱️ Отложенные и периодические задачи
+
+Celery настроен в `config/celery.py`, все настройки берутся из `settings.py` с префиксом `CELERY_`. Таймзона Celery совпадает с таймзоной проекта: `CELERY_TIMEZONE = TIME_ZONE = "Europe/Moscow"`.
+
+| Задача | Запуск | Что делает |
+|--------|--------|------------|
+| `lms.tasks.send_course_update` | `delay()` после обновления курса или урока | Отправляет каждому подписчику курса письмо об обновлении |
+| `users.tasks.block_inactive_users` | celery-beat, каждый день в 03:00 | Блокирует (`is_active=False`) пользователей, которые не заходили больше 30 дней |
+
+- Письмо отправляется, только если курс не обновлялся более 4 часов (`lms/services.py`). Обновление урока отмечает его курс обновлённым.
+- Дата последнего входа `last_login` обновляется при получении токена (`UPDATE_LAST_LOGIN`). Пользователи, которые ни разу не входили, суперпользователи и сотрудники не блокируются. Блокировка выполняется одним запросом `update()`.
+- Расписание задаётся в `CELERY_BEAT_SCHEDULE`. Beat работает с `DatabaseScheduler`: при запуске расписание сохраняется в базу, задачи видны и редактируются в админке в разделе **Periodic tasks**.
+
 ### 👥 Права доступа
 
 | Действие | Модератор | Владелец | Другой пользователь |
@@ -257,7 +299,7 @@ Authorization: Bearer <access>
 
 Админка доступна по адресу: /admin
 
-Зарегистрированные модели: Course, Lesson, Subscription, CustomUser, Payment
+Зарегистрированные модели: Course, Lesson, Subscription, CustomUser, Payment. Периодические задачи celery-beat — в разделе **Periodic tasks**.
 
 <div id="разработка"></div>
 
@@ -277,6 +319,7 @@ sp-lms/
 ├── config/
 │   ├── __init__.py
 │   ├── asgi.py
+│   ├── celery.py
 │   ├── schema.py
 │   ├── settings.py
 │   ├── tests.py
@@ -295,6 +338,7 @@ sp-lms/
 │   │   ├── 0003_subscription.py
 │   │   ├── 0004_ordering.py
 │   │   ├── 0005_course_price.py
+│   │   ├── 0006_course_updated_at_lesson_updated_at.py
 │   │   └── __init__.py
 │   ├── __init__.py
 │   ├── admin.py
@@ -302,6 +346,8 @@ sp-lms/
 │   ├── models.py
 │   ├── paginators.py
 │   ├── serializers.py
+│   ├── services.py
+│   ├── tasks.py
 │   ├── tests.py
 │   ├── urls.py
 │   ├── validators.py
@@ -323,6 +369,7 @@ sp-lms/
 │   ├── permissions.py
 │   ├── serializers.py
 │   ├── services.py
+│   ├── tasks.py
 │   ├── tests.py
 │   ├── urls.py
 │   └── views.py
@@ -382,7 +429,7 @@ uv run python readme_gen.py
 ### 📊 Результаты тестов
 
 ```
-Ran 72 tests in 33.160s
+Ran 87 tests in 39.713s
 OK
 ```
 
@@ -391,21 +438,24 @@ OK
 ```text
 Name                   Stmts   Miss  Cover
 ------------------------------------------
-config/__init__.py         0      0   100%
+config/__init__.py         2      0   100%
+config/celery.py           6      0   100%
 config/schema.py          15      0   100%
-config/settings.py        32      0   100%
+config/settings.py        43      1    98%
 config/tests.py           15      0   100%
 config/urls.py             8      1    88%
 lms/__init__.py            0      0   100%
 lms/admin.py              15      0   100%
 lms/apps.py                5      0   100%
-lms/models.py             39      3    92%
+lms/models.py             41      3    93%
 lms/paginators.py          7      0   100%
 lms/serializers.py        30      1    97%
-lms/tests.py             254      0   100%
+lms/services.py           10      0   100%
+lms/tasks.py              11      0   100%
+lms/tests.py             334      0   100%
 lms/urls.py                7      0   100%
 lms/validators.py         21      0   100%
-lms/views.py              83      0   100%
+lms/views.py              94      0   100%
 users/__init__.py          0      0   100%
 users/admin.py            11      0   100%
 users/apps.py              5      0   100%
@@ -413,12 +463,13 @@ users/managers.py         21      9    57%
 users/models.py           45      2    96%
 users/permissions.py      25      0   100%
 users/serializers.py      62      2    97%
-users/services.py         45      0   100%
-users/tests.py           228      0   100%
+users/services.py         49      0   100%
+users/tasks.py             9      0   100%
+users/tests.py           265      0   100%
 users/urls.py              7      0   100%
 users/views.py            81      0   100%
 ------------------------------------------
-TOTAL                   1061     18    98%
+TOTAL                   1244     19    98%
 ```
 
 > 📄 Отчёт покрытия также сохранён в [`coverage.txt`](coverage.txt)
@@ -472,6 +523,11 @@ uv run pre-commit run --all-files
 | | [⚙️ CourseSerializer.get_is_subscribed](docs/api/lms/serializers.md#CourseSerializer-get_is_subscribed) | Возвращает True, если текущий пользователь подписан на обновления курса. |
 | | [📦 SubscriptionSerializer](docs/api/lms/serializers.md#SubscriptionSerializer) | Сериализатор подписки: принимает ID курса. |
 | | [📦 SubscriptionSerializer.Meta](docs/api/lms/serializers.md#SubscriptionSerializer-Meta) | Мета-параметры сериализатора подписки. |
+| [**`lms/services.py`**](docs/api/lms/services.md) | | |
+| | [🔧 is_notify_needed](docs/api/lms/services.md#is_notify_needed) | Возвращает True, если с прошлого обновления курса прошло больше UPDATE_NOTIFY_INTERVAL. |
+| | [🔧 notify_subscribers](docs/api/lms/services.md#notify_subscribers) | Ставит в очередь рассылку подписчикам, если курс долго не обновлялся. |
+| [**`lms/tasks.py`**](docs/api/lms/tasks.md) | | |
+| | [🔧 send_course_update](docs/api/lms/tasks.md#send_course_update) | Отправляет подписчикам курса письмо об обновлении материалов. |
 | [**`lms/validators.py`**](docs/api/lms/validators.md) | | |
 | | [🔧 is_youtube_link](docs/api/lms/validators.md#is_youtube_link) | Проверяет, что ссылка ведёт на youtube.com или его поддомен. |
 | | [📦 YoutubeLinkValidator](docs/api/lms/validators.md#YoutubeLinkValidator) | Запрещает ссылки на сторонние ресурсы в поле: допускаются только ссылки на youtube.com. |
@@ -480,12 +536,14 @@ uv run pre-commit run --all-files
 | | [⚙️ CourseViewSet.get_queryset](docs/api/lms/views.md#CourseViewSet-get_queryset) | Модератор видит все курсы, остальные пользователи — только свои. |
 | | [⚙️ CourseViewSet.get_permissions](docs/api/lms/views.md#CourseViewSet-get_permissions) | Возвращает права для текущего action. |
 | | [⚙️ CourseViewSet.perform_create](docs/api/lms/views.md#CourseViewSet-perform_create) | Привязывает создаваемый курс к текущему пользователю. |
+| | [⚙️ CourseViewSet.perform_update](docs/api/lms/views.md#CourseViewSet-perform_update) | Сохраняет курс и отправляет подписчикам письмо об обновлении. |
 | | [📦 LessonCreateAPIView](docs/api/lms/views.md#LessonCreateAPIView) | Создание урока. Модератору недоступно. |
 | | [⚙️ LessonCreateAPIView.perform_create](docs/api/lms/views.md#LessonCreateAPIView-perform_create) | Привязывает создаваемый урок к текущему пользователю. |
 | | [📦 LessonListAPIView](docs/api/lms/views.md#LessonListAPIView) | Список уроков: модератору все, остальным только свои. |
 | | [⚙️ LessonListAPIView.get_queryset](docs/api/lms/views.md#LessonListAPIView-get_queryset) | Модератор видит все уроки, остальные пользователи — только свои. |
 | | [📦 LessonRetrieveAPIView](docs/api/lms/views.md#LessonRetrieveAPIView) | Просмотр урока: модератору или владельцу. |
 | | [📦 LessonUpdateAPIView](docs/api/lms/views.md#LessonUpdateAPIView) | Редактирование урока: модератору или владельцу. |
+| | [⚙️ LessonUpdateAPIView.perform_update](docs/api/lms/views.md#LessonUpdateAPIView-perform_update) | Сохраняет урок, отмечает курс обновлённым и отправляет подписчикам письмо об обновлении. |
 | | [📦 LessonDestroyAPIView](docs/api/lms/views.md#LessonDestroyAPIView) | Удаление урока: только владельцу, модератору недоступно. |
 | | [📦 SubscriptionAPIView](docs/api/lms/views.md#SubscriptionAPIView) | Подписка на обновления курса: повторный запрос по тому же курсу снимает подписку. |
 | | [⚙️ SubscriptionAPIView.post](docs/api/lms/views.md#SubscriptionAPIView-post) | Создаёт подписку, если её нет, и удаляет, если она уже есть. |
@@ -545,6 +603,8 @@ uv run pre-commit run --all-files
 | | [🔧 create_stripe_session](docs/api/users/services.md#create_stripe_session) | Создаёт сессию оплаты в Stripe и возвращает ответ Stripe со ссылкой на оплату в поле url. |
 | | [🔧 retrieve_stripe_session](docs/api/users/services.md#retrieve_stripe_session) | Получает сессию оплаты из Stripe и возвращает ответ Stripe. |
 | | [🔧 get_payment_status](docs/api/users/services.md#get_payment_status) | Возвращает статус платежа по данным сессии оплаты из Stripe. |
+| [**`users/tasks.py`**](docs/api/users/tasks.md) | | |
+| | [🔧 block_inactive_users](docs/api/users/tasks.md#block_inactive_users) | Блокирует пользователей, которые не заходили дольше INACTIVE_PERIOD. Возвращает число заблокированных. |
 | [**`users/views.py`**](docs/api/users/views.md) | | |
 | | [📦 UserRegisterAPIView](docs/api/users/views.md#UserRegisterAPIView) | Регистрация нового пользователя. Доступна без авторизации. |
 | | [📦 UserTokenObtainPairView](docs/api/users/views.md#UserTokenObtainPairView) | Получение пары JWT-токенов. Доступно без авторизации. |
@@ -609,6 +669,11 @@ uv run pre-commit run --all-files
 - [x] Эндпоинт оплаты курса через Stripe
 - [x] Проверка статуса оплаты в Stripe (доп. задание)
 - [x] Тесты оплаты с подменой Stripe
+- [x] Настройка Celery и celery-beat, Redis и почта через `.env`
+- [x] Рассылка подписчикам об обновлении курса через Celery
+- [x] Рассылка не чаще раза в 4 часа, учёт обновления уроков (доп. задание)
+- [x] Периодическая блокировка пользователей, не заходивших больше месяца
+- [x] Тесты задач Celery и расписания
 
 <div id="команда-проекта"></div>
 
