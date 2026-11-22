@@ -500,17 +500,8 @@ uv run python readme_gen.py
 ### 📊 Результаты тестов
 
 ```
-❌ Некоторые тесты не прошли!
-    return func(*args, **kwargs)
-  File "/home/matt/PycharmProjects/sp-lms/.venv/lib/python3.14/site-packages/django/db/backends/postgresql/base.py", line 345, in get_new_connection
-    connection = self.Database.connect(**conn_params)
-  File "/home/matt/PycharmProjects/sp-lms/.venv/lib/python3.14/site-packages/psycopg2/__init__.py", line 122, in connect
-    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
-django.db.utils.OperationalError: connection to server at "db" (198.20.0.23), port 5432 failed: server closed the connection unexpectedly
-	This probably means the server terminated abnormally
-	before or while processing the request.
-
-
+Ran 87 tests in 39.077s
+OK
 ```
 
 ### 📈 Покрытие
@@ -520,36 +511,36 @@ Name                   Stmts   Miss  Cover
 ------------------------------------------
 config/__init__.py         2      0   100%
 config/celery.py           6      0   100%
-config/schema.py          15     15     0%
+config/schema.py          15      0   100%
 config/settings.py        43      1    98%
-config/tests.py           15      9    40%
-config/urls.py             8      8     0%
+config/tests.py           15      0   100%
+config/urls.py             8      1    88%
 lms/__init__.py            0      0   100%
 lms/admin.py              15      0   100%
 lms/apps.py                5      0   100%
 lms/models.py             41      3    93%
-lms/paginators.py          7      7     0%
-lms/serializers.py        30     30     0%
-lms/services.py           10      3    70%
-lms/tasks.py              11      5    55%
-lms/tests.py             334    260    22%
-lms/urls.py                7      7     0%
-lms/validators.py         21     11    48%
-lms/views.py              94     94     0%
+lms/paginators.py          7      0   100%
+lms/serializers.py        30      1    97%
+lms/services.py           10      0   100%
+lms/tasks.py              11      0   100%
+lms/tests.py             334      0   100%
+lms/urls.py                7      0   100%
+lms/validators.py         21      0   100%
+lms/views.py              94      0   100%
 users/__init__.py          0      0   100%
 users/admin.py            11      0   100%
 users/apps.py              5      0   100%
-users/managers.py         21     15    29%
+users/managers.py         21      9    57%
 users/models.py           45      2    96%
-users/permissions.py      25      6    76%
-users/serializers.py      62     62     0%
-users/services.py         49     27    45%
-users/tasks.py             9      2    78%
-users/tests.py           265    189    29%
-users/urls.py              7      7     0%
-users/views.py            81     81     0%
+users/permissions.py      25      0   100%
+users/serializers.py      62      2    97%
+users/services.py         49      0   100%
+users/tasks.py             9      0   100%
+users/tests.py           265      0   100%
+users/urls.py              7      0   100%
+users/views.py            81      0   100%
 ------------------------------------------
-TOTAL                   1244    844    32%
+TOTAL                   1244     19    98%
 ```
 
 > 📄 Отчёт покрытия также сохранён в [`coverage.txt`](coverage.txt)
