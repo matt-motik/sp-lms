@@ -147,8 +147,8 @@ cp .env.example .env
 | **STRIPE_CURRENCY** | Валюта оплаты | rub |
 | **STRIPE_SUCCESS_URL** | Куда Stripe перенаправит после оплаты | http://127.0.0.1:8000/payments/success/ |
 | **STRIPE_CANCEL_URL** | Куда Stripe перенаправит при отмене оплаты | http://127.0.0.1:8000/payments/cancel/ |
-| **CELERY_BROKER_URL** | Адрес брокера Redis для Celery | redis://localhost:6379/0 |
-| **CELERY_RESULT_BACKEND** | Адрес Redis для хранения результатов задач | redis://localhost:6379/0 |
+| **CELERY_BROKER_URL** | Адрес брокера Redis для Celery | - |
+| **CELERY_RESULT_BACKEND** | Адрес Redis для хранения результатов задач | - |
 | **EMAIL_USE_CONSOLE** | `True` — письма выводятся в консоль worker, `False` — отправка через SMTP Яндекса | True |
 | **EMAIL_HOST_USER** | Логин почты Яндекса | - |
 | **EMAIL_HOST_PASSWORD** | Пароль приложения почты Яндекса | - |
