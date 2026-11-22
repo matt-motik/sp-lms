@@ -38,12 +38,14 @@
 - **Не чаще раза в 4 часа**: письмо уходит, только если курс не обновлялся более 4 часов, обновление урока тоже обновляет курс (доп. задание)
 - **Блокировка неактивных пользователей**: периодическая задача celery-beat блокирует тех, кто не заходил больше месяца (`users/tasks.py`)
 - **Админ-панель** для курсов, уроков, подписок, пользователей и платежей
+- **Docker Compose**: web, PostgreSQL, Redis, Celery worker и celery-beat запускаются одной командой
 
 ## 📋 Содержание
 
 - [Технологии](#технологии)
 - [Установка](#установка)
 - [Конфигурация](#конфигурация)
+  - [Безопасность и секреты](#секреты)
 - [Использование](#использование)
 - [Разработка](#разработка)
   - [Структура проекта](#структура-проекта)
@@ -69,6 +71,7 @@
 | **База данных** | PostgreSQL |
 | **Изображения** | Pillow |
 | **Управление зависимостями** | uv |
+| **Контейнеризация** | Docker, Docker Compose |
 | **Линтинг** | Ruff |
 | **Типизация** | MyPy |
 | **Pre-commit** | pre-commit |
@@ -81,8 +84,58 @@
 ```bash
 git clone https://github.com/matt-motik/sp-lms.git
 cd sp-lms
+cp .env.example .env
+```
+
+Заполните `.env` (см. [Конфигурация](#конфигурация)), затем выберите способ запуска.
+
+### 🐳 Запуск через Docker Compose
+
+Нужны Docker и Docker Compose v2 (команда `docker compose`).
+
+```bash
+docker compose up -d --build
+```
+
+Одна команда собирает образ и запускает все части проекта:
+
+| Сервис | Образ | Что делает | Доступ |
+|--------|-------|------------|--------|
+| `db` | `postgres:18` | База данных, данные в томе `postgres_data` | только внутри сети Docker (`expose`) |
+| `redis` | `redis:8` | Брокер Celery, данные в томе `redis_data` (AOF) | только внутри сети Docker (`expose`) |
+| `migrate` | `sp-lms` | Применяет миграции и завершается | — |
+| `web` | `sp-lms` | Django, `runserver` | http://127.0.0.1:8000/ |
+| `celery` | `sp-lms` | Celery worker | — |
+| `celery-beat` | `sp-lms` | Планировщик периодических задач | — |
+
+Порядок запуска задан через `depends_on` и healthcheck: `migrate` ждёт, пока PostgreSQL примет подключения, а `web`, `celery` и `celery-beat` стартуют только после успешных миграций и готовности Redis. Аватары и превью хранятся в томе `media_data`.
+
+В `.env` для Docker хосты указываются по именам сервисов: `DB_HOST=db`, `CELERY_BROKER_URL=redis://redis:6379/0`. Пользователь и база PostgreSQL создаются из `DB_NAME`, `DB_USER`, `DB_PASSWORD` при первом запуске, когда том ещё пустой. Если позже изменить их в `.env`, на уже созданную базу это не повлияет.
+
+Команды:
+
+```bash
+docker compose ps -a                                   # состояние сервисов
+docker compose logs -f web celery celery-beat          # логи
+docker compose exec web python manage.py createsuperuser
+docker compose exec web python manage.py loaddata groups payments courses
+docker compose exec web python manage.py test          # тесты внутри контейнера
+docker compose down                                    # остановить, данные в томах сохраняются
+docker compose down -v                                 # остановить и удалить тома вместе с данными
+docker volume ls                                       # список томов
+docker volume inspect sp-lms_postgres_data --format '{{ .Mountpoint }}'  # где том лежит на диске
+docker system df                                       # сколько места занимают образы, контейнеры, тома и кэш
+```
+
+После изменения кода или зависимостей образ пересобирается: `docker compose up -d --build`.
+
+### 💻 Локальный запуск без Docker
+
+```bash
 uv sync --all-groups
 ```
+
+В `.env` замените `DB_HOST` и адреса Redis на `localhost`.
 
 Установите и запустите Redis (брокер для Celery):
 
@@ -153,6 +206,22 @@ cp .env.example .env
 | **EMAIL_HOST_USER** | Логин почты Яндекса | - |
 | **EMAIL_HOST_PASSWORD** | Пароль приложения почты Яндекса | - |
 | **DEFAULT_FROM_EMAIL** | Адрес отправителя писем | noreply@example.com |
+
+Если в значении есть `$` (часто бывает в `SECRET_KEY`), возьмите его в одинарные кавычки: `SECRET_KEY='...'`. Иначе Docker Compose подставит вместо `$...` пустую строку.
+
+<div id="секреты"></div>
+
+### 🔒 Безопасность и секреты
+
+Переменные передаются через `.env`. Для учебного проекта этого достаточно, но у способа есть известные слабые места: переменные окружения видны в `docker inspect`, наследуются дочерними процессами и могут попасть в отладочную страницу Django и отчёты об ошибках.
+
+Что бы было поближе к реальному проду сделано:
+
+- `.env` в `.gitignore` и `.dockerignore`: не попадает ни в репозиторий, ни в образ
+- PostgreSQL и Redis не публикуют порты на хост, `web` опубликован только на `127.0.0.1` (Docker открывает порты в обход фаервола)
+- приложение в контейнере работает от непривилегированного пользователя `app`
+
+В продакшене секреты обычно хранят вне сервера (секреты CI, менеджер секретов) и передают в контейнер файлами, например через `secrets` в Docker Compose.
 
 <div id="использование"></div>
 
@@ -374,6 +443,8 @@ sp-lms/
 │   ├── urls.py
 │   └── views.py
 ├── coverage.txt
+├── docker-compose.yml
+├── Dockerfile
 ├── manage.py
 ├── pyproject.toml
 ├── README.md
@@ -429,7 +500,7 @@ uv run python readme_gen.py
 ### 📊 Результаты тестов
 
 ```
-Ran 87 tests in 39.713s
+Ran 87 tests in 39.077s
 OK
 ```
 
@@ -674,6 +745,8 @@ uv run pre-commit run --all-files
 - [x] Рассылка не чаще раза в 4 часа, учёт обновления уроков (доп. задание)
 - [x] Периодическая блокировка пользователей, не заходивших больше месяца
 - [x] Тесты задач Celery и расписания
+- [x] Dockerfile и `.dockerignore`
+- [x] Docker Compose: web, PostgreSQL, Redis, Celery worker и celery-beat
 
 <div id="команда-проекта"></div>
 

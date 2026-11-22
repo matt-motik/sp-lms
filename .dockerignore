@@ -1,0 +1,24 @@
+# Секреты и локальные данные не должны попасть в образ
+.env
+.env.*
+!.env.example
+db.sqlite3
+media/
+
+# Окружение и кэши
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.txt
+
+# Служебное
+.git/
+.gitignore
+.idea/
+.pre-commit-config.yaml
+Dockerfile
+docker-compose.yml
+docs/
