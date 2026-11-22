@@ -1,0 +1,85 @@
+x-app: &app
+  build: .
+  image: sp-lms
+  env_file:
+    - .env
+  volumes:
+    - media_data:/app/media
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: ${DB_NAME:?не задан DB_NAME}
+      POSTGRES_USER: ${DB_USER:?не задан DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?не задан DB_PASSWORD}
+    expose:
+      - "5432"
+    volumes:
+      # С версии 18 данные лежат в /var/lib/postgresql/<версия>/docker
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8
+    command: redis-server --appendonly yes
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Одноразовый сервис: применяет миграции до старта web, celery и celery-beat
+  migrate:
+    <<: *app
+    command: python manage.py migrate --noinput
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    <<: *app
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      # Только localhost: Docker публикует порты в обход фаервола хоста
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  celery:
+    <<: *app
+    command: celery -A config worker -l info
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    <<: *app
+    command: celery -A config beat -l info
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:
